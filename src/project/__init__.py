@@ -1,0 +1,1 @@
+"""Project-specific adapters and extensions for the boilerplate."""

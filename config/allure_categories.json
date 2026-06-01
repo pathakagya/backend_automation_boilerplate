@@ -1,0 +1,22 @@
+[
+  {
+    "name": "API Errors",
+    "matchedStatuses": ["failed"],
+    "messageRegex": ".*status.*|.*HTTP.*"
+  },
+  {
+    "name": "DB Issues",
+    "matchedStatuses": ["failed"],
+    "messageRegex": ".*DB.*|.*database.*|.*query.*"
+  },
+  {
+    "name": "Timeouts",
+    "matchedStatuses": ["failed"],
+    "messageRegex": ".*Timeout.*|.*timed out.*"
+  },
+  {
+    "name": "Product Defects",
+    "matchedStatuses": ["failed"],
+    "messageRegex": ".*AssertionError.*|.*expected.*got.*"
+  }
+]
