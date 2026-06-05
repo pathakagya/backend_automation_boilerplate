@@ -194,7 +194,6 @@ reports/
 # Secrets and local config
 .env
 config/.env
-config/.env.*
 
 # Allure generated outputs
 allure-results/*
