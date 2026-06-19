@@ -3,12 +3,17 @@ API test helpers — common patterns for making requests and asserting responses
 """
 from __future__ import annotations
 
-from typing import Any, Callable, Generator, Optional
+from typing import Any, Callable, Optional
 
 from requests import Response
 
 from core.api_session_manager import APISession
 from helpers.assertions import assert_status
+from helpers.response_parser import (
+    extract_token,
+    extract_list,
+    extract_field,
+)
 
 
 def request_and_assert(
@@ -37,29 +42,20 @@ def request_and_assert(
     return response
 
 
+# Backward-compatible aliases to response_parser functions
 def _extract_token(response: Response) -> Optional[str]:
-    body = response.json()
-    for key in ("token", "access_token", "accessToken"):
-        if key in body:
-            return body[key]
-    data = body.get("data") or {}
-    for key in ("token", "access_token", "accessToken"):
-        if key in data:
-            return data[key]
-    return None
+    """Backward-compatible wrapper for extract_token()."""
+    return extract_token(response)
 
 
 def _extract_list(response: Response, key: str) -> list:
-    body = response.json()
-    value = body.get(key) if isinstance(body, dict) else None
-    return value if isinstance(value, list) else []
+    """Backward-compatible wrapper for extract_list()."""
+    return extract_list(response, key)
 
 
 def _extract_field(response: Response, key: str) -> Any:
-    try:
-        return response.json().get(key)
-    except Exception:
-        return None
+    """Backward-compatible wrapper for extract_field()."""
+    return extract_field(response, key)
 
 
 def authenticate_and_set_token(

@@ -26,12 +26,10 @@ Usage:
 """
 from __future__ import annotations
 
-import random
-import string
-import uuid
 from typing import Any
 
 from faker import Faker
+from helpers.common import random_string, random_int, random_email, unique_id
 
 
 class BaseFactory:
@@ -49,21 +47,3 @@ class BaseFactory:
     def create_many(cls, count: int, **overrides: Any) -> list[dict[str, Any]]:
         """Call create_payload() count times; each gets its own random values."""
         return [cls.create_payload(**overrides) for _ in range(count)]
-
-
-def random_string(length: int = 8, prefix: str = "") -> str:
-    chars = string.ascii_lowercase + string.digits
-    suffix = "".join(random.choices(chars, k=length))
-    return f"{prefix}{suffix}"
-
-
-def random_int(min_val: int = 1, max_val: int = 9999) -> int:
-    return random.randint(min_val, max_val)
-
-
-def random_email(domain: str = "test.example.com") -> str:
-    return f"{random_string(8)}@{domain}"
-
-
-def unique_id() -> str:
-    return str(uuid.uuid4())

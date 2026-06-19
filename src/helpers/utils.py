@@ -4,29 +4,11 @@ General utilities used across tests and helpers.
 from __future__ import annotations
 
 import json
-import random
-import string
-import uuid
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
-
-# ---------------------------------------------------------------------------
-# String helpers
-# ---------------------------------------------------------------------------
-
-def random_string(length: int = 8, prefix: str = "") -> str:
-    chars = string.ascii_lowercase + string.digits
-    return prefix + "".join(random.choices(chars, k=length))
-
-
-def random_int(min_val: int = 1, max_val: int = 9999) -> int:
-    return random.randint(min_val, max_val)
-
-
-def random_email(domain: str = "test.example.com") -> str:
-    return f"{random_string(8)}@{domain}"
+from helpers.common import random_string, random_int, random_email, unique_id
 
 
 # ---------------------------------------------------------------------------
@@ -67,8 +49,9 @@ def write_json_file(path: str | Path, data: Any, indent: int = 2) -> None:
 
 
 # ---------------------------------------------------------------------------
-# UUID helper
+# UUID helper (re-export for backward compatibility)
 # ---------------------------------------------------------------------------
 
 def new_uuid() -> str:
-    return str(uuid.uuid4())
+    """Generate a new UUID. Alias for unique_id() from common."""
+    return unique_id()

@@ -12,6 +12,7 @@ from typing import Any, Optional
 from requests import Response
 
 from core.constants import SmokeExpectedStatus, SmokeTimeoutSeconds
+from helpers.common import get_field
 
 
 # ---------------------------------------------------------------------------
@@ -106,11 +107,7 @@ def assert_row_field(row: Any, field: str, expected: Any) -> None:
     Assert a specific field in a DB row matches expected.
     Supports both dict rows and namedtuple/Row objects.
     """
-    if isinstance(row, dict):
-        actual = row.get(field)
-    else:
-        actual = getattr(row, field, None)
-
+    actual = get_field(row, field)
     if actual != expected:
         raise AssertionError(
             f"Row field {field!r}: expected {expected!r}, got {actual!r}."

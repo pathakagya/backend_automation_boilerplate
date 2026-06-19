@@ -12,22 +12,48 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
+### macOS / Linux
+
 ```bash
 # Setup
-python -m venv venv && source venv/bin/activate
+python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 cp config/.env.example config/.env.dev   # fill in values
 export ENV=dev
 
 # Run tiers
-make smoke          # pytest tests/smoke -m smoke
-make integration    # pytest tests/integration -m integration
-make e2e            # pytest tests/e2e -m e2e
+make smoke          # fast health/connectivity checks
+make integration    # API count vs DB (requires DB config)
+make e2e            # CRUD flows (requires DB config)
 make verify         # all three in order
 
 # Single test
 pytest tests/e2e/{feature}/test_{test_title}.py -ra -s
 ```
+
+### Windows
+
+```bash
+# Setup
+python -m venv venv
+venv\Scripts\activate
+pip install -r requirements.txt
+copy config\.env.example config\.env.dev   # fill in values
+set ENV=dev
+
+# Run tiers (Makefile not available; use pytest directly)
+pytest tests/smoke -m smoke -ra                    # fast health/connectivity checks
+pytest tests/integration -m integration -ra        # API count vs DB (requires DB config)
+pytest tests/e2e -m e2e -ra                        # CRUD flows (requires DB config)
+
+# All tests in order
+pytest tests/smoke -m smoke -ra && pytest tests/integration -m integration -ra && pytest tests/e2e -m e2e -ra
+
+# Single test
+pytest tests/e2e/{feature}/test_{test_title}.py -ra -s
+```
+
+> **⚠️ Note:** The Makefile is Unix-only. Windows users must use `pytest` commands directly.
 
 ## Configuration
 

@@ -29,22 +29,61 @@ Follow the docs below **in order**. Each doc ends with a link to the next one.
 | 6 | [EXTENDING.md](docs/EXTENDING.md) | Add tests for a new feature area from scratch |
 | 7 | [DEBUGGING.md](docs/DEBUGGING.md) | Diagnose failures, read logs, common fixes |
 
-**Minimum to get started:**
+---
+
+## Setup and Execution
+
+### macOS / Linux
 
 ```bash
-# 1. Setup
-python -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
-cp config/.env.example config/.env.dev   # then fill in API_BASE_URL
+# 1. Create and activate virtual environment
+python3 -m venv venv
+source venv/bin/activate
 
-# 2. Configure
+# 2. Install dependencies
+pip install -r requirements.txt
+
+# 3. Configure environment
+cp config/.env.example config/.env.dev
+# Edit config/.env.dev with your API_BASE_URL and DB credentials
+
+# 4. Set environment variable
 export ENV=dev
 
-# 3. Run
-make smoke
+# 5. Run tests
+make smoke              # fast health/connectivity checks
+make integration        # API count vs DB (requires DB config)
+make e2e                # CRUD flows (requires DB config)
+make verify             # all three in order
 ```
 
-If smoke passes, you're set up correctly.
+### Windows
+
+```bash
+# 1. Create and activate virtual environment
+python -m venv venv
+venv\Scripts\activate
+
+# 2. Install dependencies
+pip install -r requirements.txt
+
+# 3. Configure environment
+copy config\.env.example config\.env.dev
+# Edit config\.env.dev with your API_BASE_URL and DB credentials (use Notepad or your IDE)
+
+# 4. Set environment variable
+set ENV=dev
+
+# 5. Run tests (use pytest directly — Make is not available on Windows)
+pytest tests/smoke -m smoke -ra                    # fast health/connectivity checks
+pytest tests/integration -m integration -ra        # API count vs DB (requires DB config)
+pytest tests/e2e -m e2e -ra                        # CRUD flows (requires DB config)
+
+# All tests in order (smoke → integration → e2e)
+pytest tests/smoke -m smoke -ra && pytest tests/integration -m integration -ra && pytest tests/e2e -m e2e -ra
+```
+
+> **⚠️ Note:** The `Makefile` uses Unix-style commands and does not work on Windows. Windows users must use `pytest` commands directly.
 
 ---
 
@@ -55,13 +94,6 @@ If smoke passes, you're set up correctly.
 | Smoke | `tests/smoke/` | `@pytest.mark.smoke` | Health & connectivity — no DB required |
 | Integration | `tests/integration/` | `@pytest.mark.integration` | API list count vs DB count (read-only, no factories) |
 | E2E | `tests/e2e/<feature>/` | `@pytest.mark.e2e` | Feature CRUD; `BaseFactory` payloads; `state` fixture |
-
-```bash
-make smoke          # fast; run this first
-make integration    # requires DB config
-make e2e            # requires DB config
-make verify         # all three in order
-```
 
 ---
 

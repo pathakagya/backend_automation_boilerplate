@@ -16,13 +16,14 @@ Usage:
 from __future__ import annotations
 
 import json
-import importlib
 from enum import Enum
 from typing import Any, Optional
 
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+
+from core.shared_utils import get_allure_module, attach_json_to_allure, safe_json_serialize
 
 
 class AuthType(str, Enum):
@@ -154,9 +155,6 @@ class APISession:
         return response
 
     def _attach_request(self, method: str, url: str, kwargs: dict[str, Any]) -> None:
-        allure = _get_allure_module()
-        if allure is None:
-            return
         payload = {
             "method": method,
             "url": url,
@@ -166,19 +164,16 @@ class APISession:
             "data": kwargs.get("data"),
             "timeout": kwargs.get("timeout"),
         }
-        allure.attach(
-            json.dumps(payload, indent=2, default=str),
-            name=f"HTTP Request: {method} {url}",
-            attachment_type=allure.attachment_type.JSON,
-        )
+        attach_json_to_allure(payload, f"HTTP Request: {method} {url}")
 
     def _attach_response(self, method: str, url: str, response: requests.Response) -> None:
-        allure = _get_allure_module()
+        allure = get_allure_module()
         if allure is None:
             return
+
         try:
             body = response.json()
-            body_text = json.dumps(body, indent=2, default=str)
+            body_text = safe_json_serialize(body)
             atype = allure.attachment_type.JSON
         except Exception:
             body_text = response.text[:10000]
@@ -191,11 +186,7 @@ class APISession:
             "elapsed_ms": int(response.elapsed.total_seconds() * 1000),
             "headers": dict(response.headers),
         }
-        allure.attach(
-            json.dumps(metadata, indent=2, default=str),
-            name=f"HTTP Response Meta: {method} {url}",
-            attachment_type=allure.attachment_type.JSON,
-        )
+        attach_json_to_allure(metadata, f"HTTP Response Meta: {method} {url}")
         allure.attach(body_text, name=f"HTTP Response Body: {method} {url}", attachment_type=atype)
 
     def _build_url(self, path: str) -> str:
@@ -273,10 +264,3 @@ class APISession:
 
     def __repr__(self) -> str:
         return f"APISession(base_url={self.base_url!r}, auth={self.auth_type.value!r})"
-
-
-def _get_allure_module() -> Any | None:
-    try:
-        return importlib.import_module("allure")
-    except Exception:
-        return None

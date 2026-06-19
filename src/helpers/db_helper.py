@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from typing import Any, Generator, Optional
 
 from core.db_connection_manager import DatabaseConnection
+from helpers.common import qualify_table, get_field
 
 
 def insert_row(
@@ -24,7 +25,7 @@ def insert_row(
         data:   Column → value dict.
         schema: Optional schema prefix (e.g. "app_schema").
     """
-    qualified = f"{schema}.{table}" if schema else table
+    qualified = qualify_table(table, schema)
     columns = ", ".join(data.keys())
     placeholders = ", ".join([f":{i+1}" for i in range(len(data))])  # Oracle-style :1,:2
     query = f"INSERT INTO {qualified} ({columns}) VALUES ({placeholders})"
@@ -49,7 +50,7 @@ def temp_row(
             ...  # test assertions
         # row is deleted automatically
     """
-    qualified = f"{schema}.{table}" if schema else table
+    qualified = qualify_table(table, schema)
     insert_row(conn, table, data, schema)
     try:
         yield data
@@ -76,7 +77,7 @@ def fetch_row(
 
     Returns None if not found.
     """
-    qualified = f"{schema}.{table}" if schema else table
+    qualified = qualify_table(table, schema)
     conditions = " AND ".join([f"{col}=:{i+1}" for i, col in enumerate(where)])
     query = f"SELECT * FROM {qualified} WHERE {conditions}"
     return conn.fetch_one(query, list(where.values()))
@@ -97,7 +98,7 @@ def compare_dicts(expected: dict, actual: dict, fields: Optional[list] = None) -
     mismatches = {}
     for field in fields:
         exp_val = expected.get(field)
-        act_val = actual.get(field) if isinstance(actual, dict) else getattr(actual, field, None)
+        act_val = get_field(actual, field)
         if exp_val != act_val:
             mismatches[field] = {"expected": exp_val, "actual": act_val}
     if mismatches:

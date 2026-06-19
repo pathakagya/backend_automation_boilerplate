@@ -34,10 +34,11 @@ Example (MSSQL via pyodbc):
 from __future__ import annotations
 
 import json
-import importlib
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from typing import Any, Generator, Optional
+
+from core.shared_utils import get_allure_module, attach_json_to_allure
 
 
 class DatabaseConnectionError(Exception):
@@ -229,25 +230,12 @@ class DatabaseConnection(ABC):
             self._in_transaction = False
 
     def _attach_query(self, query: str, params: Optional[Any]) -> None:
-        allure = _get_allure_module()
-        if allure is None:
-            return
         payload = {"query": query, "params": params}
-        allure.attach(
-            json.dumps(payload, indent=2, default=str),
-            name="DB Query",
-            attachment_type=allure.attachment_type.JSON,
-        )
+        attach_json_to_allure(payload, "DB Query")
 
     def _attach_result(self, op: str, result: Any) -> None:
-        allure = _get_allure_module()
-        if allure is None:
-            return
-        allure.attach(
-            json.dumps({"operation": op, "result": result}, indent=2, default=str),
-            name=f"DB Result: {op}",
-            attachment_type=allure.attachment_type.JSON,
-        )
+        payload = {"operation": op, "result": result}
+        attach_json_to_allure(payload, f"DB Result: {op}")
 
     @classmethod
     def from_config(cls, config: dict[str, Any]) -> "DatabaseConnection":
@@ -277,10 +265,3 @@ class DatabaseConnection(ABC):
     def __repr__(self) -> str:
         status = "connected" if self._conn else "disconnected"
         return f"{self.__class__.__name__}({self.user}@{self.host}:{self.port}/{self.database} [{status}])"
-
-
-def _get_allure_module() -> Any | None:
-    try:
-        return importlib.import_module("allure")
-    except Exception:
-        return None
