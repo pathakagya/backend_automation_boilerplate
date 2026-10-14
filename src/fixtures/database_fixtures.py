@@ -55,6 +55,7 @@ def make_db_fixture(
     """
     @pytest.fixture(scope=scope)
     def _db_fixture(config: ConfigManager) -> Generator[DatabaseConnection, None, None]:
+        """Create, yield, and clean up one explicitly configured DB adapter."""
         db_cfg = config.get_database_config(config_section)
         conn = connection_class.from_config(db_cfg)
         conn.connect()

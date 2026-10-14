@@ -8,26 +8,29 @@ Pytest automation boilerplate for backend API and database validation. Keep chan
 |------|--------------|
 | `project.md` | Stack, layout, env setup, first-time fork steps |
 | `testing.md` | Test tiers, which folder to use, fixtures, helpers |
-| `assertions.md` | `helpers.assertions` full API reference |
+| `assertions.md` | `tests.commons.assertions` full API reference |
 | `gotchas.md` | Repeated mistakes — check before writing any test |
+
+Enforceable Do/Don't standards: `.claude/rules/*.md`. Scaffolding: `.claude/skills/*/SKILL.md`.
 
 ## Definition of done
 
 - [ ] Correct folder and marker — see `testing.md` for tier rules
 - [ ] No secrets in git; no DB drivers in `src/core/`
-- [ ] Uses `helpers.assertions` (see `assertions.md`)
-- [ ] Integration: no `BaseFactory`; E2E: factories only under `tests/e2e/data_builders/`
-- [ ] `make verify` passes for all touched tiers
+- [ ] Uses `tests.commons.assertions` (see `assertions.md`)
+- [ ] Integration: no `BaseFactory`; E2E: factories only under `tests/commons/data_builder/`
+- [ ] `pytest` passes for all touched tiers (smoke/integration/e2e as applicable)
 
 ## Scope of changes
 
 | What | Where |
 |------|-------|
-| Generic helpers, config, session | `src/core/`, `src/fixtures/`, `src/helpers/` |
+| Generic helpers, config, session (project-agnostic, ships with the boilerplate) | `src/core/`, `src/fixtures/`, `src/helpers/` |
+| Project-facing shared test modules (assertions, data builders, schemas) | `tests/commons/` |
 | Project wiring (API + DB sessions) | `tests/conftest.py` |
 | Smoke tests | `tests/smoke/` |
 | Integration tests (count parity) | `tests/integration/` — no factories |
-| E2E tests + data factories | `tests/e2e/<feature>/` + `tests/e2e/data_builders/` |
+| E2E tests + typed API clients | `tests/e2e/<feature>/`, `api/<feature>_client.py` — factories live in `tests/commons/data_builder/` |
 
 ## Deep references
 

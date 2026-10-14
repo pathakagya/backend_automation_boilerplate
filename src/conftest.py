@@ -31,6 +31,9 @@ def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line("markers", "integration: tests requiring DB or API connectivity")
     config.addinivalue_line("markers", "e2e: end-to-end multi-step workflow tests")
     config.addinivalue_line("markers", "smoke: subset of critical-path tests")
+    config.addinivalue_line(
+        "markers", "db_required: tests requiring a project-owned database adapter"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -38,11 +41,12 @@ def pytest_configure(config: pytest.Config) -> None:
 # ---------------------------------------------------------------------------
 
 def _resolve_config_manager() -> ConfigManager:
+    """Create the shared configuration facade for the current environment."""
     return ConfigManager()
 
 
 @pytest.fixture(scope="session")
-def config(tmp_path_factory: pytest.TempPathFactory) -> ConfigManager:
+def config() -> ConfigManager:
     """
     Session-scoped configuration manager.
 

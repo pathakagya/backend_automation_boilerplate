@@ -36,6 +36,7 @@ class AuthClient:
         self._refresh_token: str | None = None
 
     def authenticate(self, username: str, password: str) -> str:
+        """Authenticate once, cache the token, and update the API session."""
         response = self.session.post(self.login_path, json={"username": username, "password": password})
         response.raise_for_status()
         payload = response.json()
@@ -48,6 +49,7 @@ class AuthClient:
         return token
 
     def get_valid_token(self, username: str | None = None, password: str | None = None) -> str:
+        """Return a cached, refreshed, or newly authenticated access token."""
         if self._token and self._token.expires_at_epoch > time.time():
             return self._token.access_token
 
@@ -62,6 +64,8 @@ class AuthClient:
         raise ValueError("No valid token in cache and no credentials were provided for re-authentication.")
 
     def _refresh(self) -> str | None:
+        """Try to refresh the cached token; return ``None`` on refresh failure."""
+        import warnings
         try:
             response = self.session.post(self.refresh_path, json={self.refresh_token_key: self._refresh_token})
             response.raise_for_status()
@@ -71,5 +75,9 @@ class AuthClient:
             self._token = TokenInfo(access_token=token, expires_at_epoch=time.time() + expires_in - 30)
             self.session.set_bearer_token(token)
             return token
-        except Exception:
+        except Exception as exc:
+            warnings.warn(
+                f"AuthClient._refresh failed: {exc}. Will fall back to re-authentication.",
+                stacklevel=2,
+            )
             return None

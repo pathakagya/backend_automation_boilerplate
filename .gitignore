@@ -206,3 +206,7 @@ CLAUDE.local.md
 .cursor/
 .vscode/
 
+roadmap.md
+Core.postman_collection.json
+API_DOCUMENTATION.md
+outputs/

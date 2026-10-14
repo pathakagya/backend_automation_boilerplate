@@ -151,7 +151,7 @@ with temp_row(db, "users", payload, schema="app_schema") as user_id:
 # Option B: fixture with yield teardown
 @pytest.fixture
 def created_user(api_session, db_connection):
-    response = api_session.post("/users", json=UserFactory.build())
+    response = api_session.post("/users", json=UserFactory.create_payload())
     user_id = response.json()["id"]
     yield user_id
     api_session.delete(f"/users/{user_id}")   # cleanup
@@ -217,7 +217,7 @@ def created_user(api_session, db_connection):
 
 **Fix:** Use `run_prefix` in factory-generated names so each worker's data is unique:
 ```python
-payload = UserFactory.build(name=f"{run_prefix}_alice")
+payload = UserFactory.create_payload(name=f"{run_prefix}_alice")
 ```
 
 ---
@@ -293,6 +293,6 @@ If none of the above fixes the issue:
 - [ ] Can you reproduce the failure with `-vv -s`?
 - [ ] Does the failing assertion show the actual vs expected values?
 - [ ] Does `allure serve allure-results` show the request/response that caused the failure?
-- [ ] Is the same test passing on `main`? (`git stash && make smoke`)
+- [ ] Is the same test passing on `main`? (`git stash && pytest tests/smoke -m smoke -ra`)
 - [ ] Is the API team aware of the issue?
 - [ ] Is there a known deployment or schema change that could explain the diff?

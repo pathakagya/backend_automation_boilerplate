@@ -211,6 +211,8 @@ def retry(
                 time.sleep(delay)
                 delay *= backoff_multiplier
 
+    if last_error is None:
+        raise ValueError(f"retry() called with max_attempts={max_attempts}; must be >= 1")
     raise last_error
 
 
@@ -241,7 +243,7 @@ def poll_until_stable(
 
     Example:
         final_count = poll_until_stable(
-            lambda: db.query("SELECT COUNT(*) as cnt FROM orders").cnt,
+            lambda: db.fetch_one("SELECT COUNT(*) as cnt FROM orders")["cnt"],
             stable_for_seconds=3.0,
             description="order count to stabilize"
         )

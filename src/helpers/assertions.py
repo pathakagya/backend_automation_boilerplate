@@ -119,6 +119,7 @@ def assert_row_field(row: Any, field: str, expected: Any) -> None:
 # ---------------------------------------------------------------------------
 
 def _safe_body(response: Response) -> str:
+    """Return a compact response body for assertion diagnostics."""
     try:
         return json.dumps(response.json(), indent=2)
     except Exception:
@@ -126,6 +127,7 @@ def _safe_body(response: Response) -> str:
 
 
 def _parse_json(response: Response) -> Any:
+    """Decode a JSON response or raise a useful assertion error."""
     try:
         return response.json()
     except Exception as exc:

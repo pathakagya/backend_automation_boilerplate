@@ -7,6 +7,8 @@ Example (Oracle):
     import cx_Oracle
 
     class OracleConnection(DatabaseConnection):
+        paramstyle = "numeric"  # cx_Oracle/oracledb positional binds: :1, :2, ...
+
         def _create_connection(self):
             dsn = cx_Oracle.makedsn(self.host, self.port, service_name=self.database)
             return cx_Oracle.connect(self.user, self.password, dsn)
@@ -18,6 +20,8 @@ Example (MSSQL via pyodbc):
     import pyodbc
 
     class MSSQLConnection(DatabaseConnection):
+        paramstyle = "qmark"  # pyodbc binds: ?, ?, ...
+
         def _create_connection(self):
             conn_str = (
                 f"DRIVER={{ODBC Driver 17 for SQL Server}};"
@@ -57,6 +61,8 @@ class DatabaseConnection(ABC):
 
     Projects only need to implement _create_connection() and _create_cursor().
     """
+
+    paramstyle: str = "format"
 
     def __init__(
         self,
@@ -148,6 +154,13 @@ class DatabaseConnection(ABC):
         """Execute a SELECT and return the first row, or None."""
         self.execute(query, params)
         row = self._cursor.fetchone()
+        # Drain any remaining rows so the connection doesn't hold an unread result.
+        # mysql-connector-python (C extension) raises InternalError on commit() or the
+        # next execute() if rows from a previous SELECT are still pending on the cursor.
+        try:
+            self._cursor.fetchall()
+        except Exception:
+            pass
         self._attach_result("fetch_one", row)
         return row
 
@@ -215,12 +228,14 @@ class DatabaseConnection(ABC):
     # ------------------------------------------------------------------ #
 
     def _ensure_connected(self) -> None:
+        """Raise a configuration error when a query lacks an active connection."""
         if self._conn is None:
             raise DatabaseConnectionError(
                 "No active connection. Call connect() before executing queries."
             )
 
     def _safe_rollback(self) -> None:
+        """Rollback best-effort and always clear the transaction flag."""
         try:
             if self._conn is not None:
                 self._conn.rollback()
@@ -230,12 +245,31 @@ class DatabaseConnection(ABC):
             self._in_transaction = False
 
     def _attach_query(self, query: str, params: Optional[Any]) -> None:
-        payload = {"query": query, "params": params}
+        """Attach a sanitized query and bound parameters to Allure when enabled."""
+        payload = {"query": query, "params": self._sanitize_for_report(params)}
         attach_json_to_allure(payload, "DB Query")
 
     def _attach_result(self, op: str, result: Any) -> None:
-        payload = {"operation": op, "result": result}
+        """Attach a sanitized DB result summary to Allure when enabled."""
+        payload = {"operation": op, "result": self._sanitize_for_report(result)}
         attach_json_to_allure(payload, f"DB Result: {op}")
+
+    @staticmethod
+    def _sanitize_for_report(value: Any) -> Any:
+        """Redact likely credentials before DB evidence is attached to Allure."""
+        secret_names = ("password", "token", "secret", "api_key", "authorization")
+        if isinstance(value, dict):
+            return {
+                key: (
+                    "<redacted>"
+                    if any(name in str(key).lower() for name in secret_names)
+                    else DatabaseConnection._sanitize_for_report(item)
+                )
+                for key, item in value.items()
+            }
+        if isinstance(value, (list, tuple)):
+            return [DatabaseConnection._sanitize_for_report(item) for item in value]
+        return value
 
     @classmethod
     def from_config(cls, config: dict[str, Any]) -> "DatabaseConnection":

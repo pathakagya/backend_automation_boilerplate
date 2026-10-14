@@ -5,36 +5,7 @@ Consolidates utilities that appear in multiple helpers files to avoid duplicatio
 """
 from __future__ import annotations
 
-import random
-import string
-import uuid
 from typing import Any
-
-
-# ---------------------------------------------------------------------------
-# Random data generators (was duplicated in utils.py and data_builders.py)
-# ---------------------------------------------------------------------------
-
-def random_string(length: int = 8, prefix: str = "") -> str:
-    """Generate a random alphanumeric string."""
-    chars = string.ascii_lowercase + string.digits
-    suffix = "".join(random.choices(chars, k=length))
-    return f"{prefix}{suffix}"
-
-
-def random_int(min_val: int = 1, max_val: int = 9999) -> int:
-    """Generate a random integer within range."""
-    return random.randint(min_val, max_val)
-
-
-def random_email(domain: str = "test.example.com") -> str:
-    """Generate a random email address."""
-    return f"{random_string(8)}@{domain}"
-
-
-def unique_id() -> str:
-    """Generate a unique UUID string."""
-    return str(uuid.uuid4())
 
 
 # ---------------------------------------------------------------------------
@@ -81,6 +52,30 @@ def qualify_table(table: str, schema: str = "") -> str:
         qualify_table("users", "app_schema")      # "app_schema.users"
     """
     return f"{schema}.{table}" if schema else table
+
+
+def placeholder(paramstyle: str, index: int) -> str:
+    """
+    Build a single SQL bind-parameter placeholder for the given PEP 249 paramstyle.
+
+    Args:
+        paramstyle: A DatabaseConnection subclass's declared paramstyle
+            ("qmark" | "numeric" | "named" | "format" | "pyformat").
+        index: 1-based position of this parameter (used only by "numeric").
+
+    Returns:
+        "%s" for "format"/"pyformat" (e.g. mysql-connector-python, psycopg2 positional),
+        "?" for "qmark" (e.g. sqlite3, pyodbc),
+        ":{index}" for "numeric" (e.g. cx_Oracle/oracledb positional binds).
+
+    Never hardcode a placeholder style in a query builder — use this so the same helper
+    works against whichever engine's DatabaseConnection subclass is configured.
+    """
+    if paramstyle == "qmark":
+        return "?"
+    if paramstyle == "numeric":
+        return f":{index}"
+    return "%s"  # format / pyformat
 
 
 def parse_json_safe(obj: Any) -> dict | list | None:

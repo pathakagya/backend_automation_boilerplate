@@ -29,7 +29,6 @@ from __future__ import annotations
 from typing import Any
 
 from faker import Faker
-from helpers.common import random_string, random_int, random_email, unique_id
 
 
 class BaseFactory:
@@ -37,10 +36,12 @@ class BaseFactory:
 
     @classmethod
     def _generate_random_number(cls, digits: int = 3) -> str:
+        """Generate a fixed-width random numeric string for payload factories."""
         return str(cls._faker.random_number(digits=digits, fix_len=True))
 
     @classmethod
-    def create_payload(cls) -> dict[str, Any]:
+    def create_payload(cls, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        """Build one project payload; subclasses must define domain fields."""
         raise NotImplementedError("Subclasses must implement create_payload()")
 
     @classmethod

@@ -1,0 +1,22 @@
+# DB drivers — install ONLY the one for your project's database engine.
+#
+# Local setup:
+#   Uncomment the relevant line below and run:
+#   pip install -r requirements-db.txt
+#
+# CI setup:
+#   Set the DB_DRIVER repo variable (Settings → Variables → Actions) to the
+#   package spec for your engine (e.g. psycopg2-binary>=2.9.9).
+#   The db-tests workflow job installs it automatically.
+#
+# ─────────────────────────────────────────────────────────────────
+# MySQL  →  DB_ENGINE=mysql
+# mysql-connector-python>=9.0.0
+#
+# PostgreSQL  →  DB_ENGINE=postgresql  or  DB_ENGINE=postgres
+# psycopg2-binary>=2.9.9
+#
+# Oracle  →  DB_ENGINE=oracle
+# Thin mode: no Oracle Instant Client needed (oracledb>=2.0.0 default).
+# oracledb>=2.0.0
+# ─────────────────────────────────────────────────────────────────

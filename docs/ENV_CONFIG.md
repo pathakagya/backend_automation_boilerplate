@@ -35,7 +35,7 @@ ConfigManager            ← single source of truth in tests
 
 ```bash
 export ENV=dev
-make smoke
+pytest tests/smoke -m smoke -ra
 ```
 
 If the selected file does not exist and `config/.env` also doesn't exist, `ConfigManager` falls back to pure environment variables.
@@ -53,9 +53,12 @@ If the selected file does not exist and `config/.env` also doesn't exist, `Confi
 | `API_TOKEN` | When `bearer` | `eyJhbG...` | Bearer token |
 | `API_USERNAME` | When `basic` | `testuser` | Basic auth username |
 | `API_PASSWORD` | When `basic` | `secret` | Basic auth password |
-| `API_KEY` | When `api_key` | `abc123` | API key value |
-| `API_KEY_HEADER` | When `api_key` | `X-API-Key` | Header name for the key |
+| `API_KEY` | When `api_key` / `api_key_param` | `abc123` | API key value |
+| `API_KEY_HEADER` | When `api_key` | `X-API-Key` | Header name for the key (default: `X-API-Key`) |
+| `API_KEY_PARAM_NAME` | When `api_key_param` | `api_key` | Query param name for the key (default: `api_key`) |
 | `API_TIMEOUT` | No | `30` | Request timeout in seconds (default: 30) |
+| `API_MAX_RETRIES` | No | `2` | Retries on 500/502/503/504 (default: 2) |
+| `API_RETRY_BACKOFF` | No | `0.3` | Exponential backoff factor between retries (default: 0.3) |
 
 > See [API_SETUP.md](API_SETUP.md) for full auth strategy examples.
 
@@ -64,19 +67,40 @@ If the selected file does not exist and `config/.env` also doesn't exist, `Confi
 | Variable | Required | Example | Description |
 |----------|----------|---------|-------------|
 | `AUTH_SERVICE_BASE_URL` | No | `https://auth.example.com` | Base URL for a second service (e.g. a dedicated auth service) |
+| `<SECTION>_BASE_URL` / `_AUTH_TYPE` / `_TOKEN` / ... | No | `BILLING_API_BASE_URL` | Any named section read by `make_api_fixture("<section>")` — see [API_SETUP.md](API_SETUP.md#second-services--multi-api-setup) |
+| `API_ROLE_USERNAME` / `API_ROLE_PASSWORD` | No | — | Credentials for the opt-in `role_api_session` fixture (pre-authenticated role session) |
+
+### Role sessions (RBAC)
+
+For multi-role testing via `make_role_fixture`, env vars follow the pattern `{ROLE}_API_USERNAME` / `{ROLE}_API_PASSWORD`:
+
+| Variable | Role name in code | Example value |
+|---|---|---|
+| `ADMIN_API_USERNAME` / `ADMIN_API_PASSWORD` | `"admin"` | `admin@example.com` / `secret` |
+| `VIEWER_API_USERNAME` / `VIEWER_API_PASSWORD` | `"viewer"` | `viewer@example.com` / `secret` |
+| `APPROVER_API_USERNAME` / `APPROVER_API_PASSWORD` | `"approver"` | `approver@example.com` / `secret` |
+
+Any role name works — the pattern is `{ROLE_NAME.upper()}_API_USERNAME`. Authentication goes through `AUTH_SERVICE_BASE_URL` (if set) or the primary `API_BASE_URL`. See [RBAC_TESTING.md](RBAC_TESTING.md) for setup and usage.
 
 ### Database connection
 
 | Variable | Required | Example | Description |
 |----------|----------|---------|-------------|
 | `DB_ENGINE` | For DB tests | `mysql` | `mysql`, `postgresql`, `oracle` |
+| `DB_ADAPTER_CLASS` | For DB tests | `project.db.adapter:ProjectDatabaseAdapter` | Import path for the consuming project's adapter class |
 | `DATABASE_HOST` | For DB tests | `localhost` | Database host |
 | `DATABASE_PORT` | For DB tests | `3306` | Database port |
 | `DATABASE_NAME` | For DB tests | `app_db` | Schema / database name |
 | `DATABASE_USER` | For DB tests | `qa_user` | Database username |
 | `DATABASE_PASSWORD` | For DB tests | `secret` | Database password |
+| `DATABASE_CONNECT_TIMEOUT` | No | `10` | Connection timeout in seconds (default: 10) |
+| `DATABASE_SSL_DISABLED` | No | `true` | Disable SSL for the connection (engine-dependent) |
+| `DATABASE_CHARSET` | No | `utf8mb4` | Connection charset (engine-dependent) |
+| `<SECTION>_HOST` / `_PORT` / `_NAME` / ... | No | `ORACLE_HOST` | Any named section read by `make_db_fixture(cls, config_section="<section>")` — see [DATABASE_SETUP.md](DATABASE_SETUP.md#a-second--named-database-connection) |
 
-> If DB vars are missing or incomplete, all tests that require `db_connection` are **skipped** (not failed). See [DATABASE_SETUP.md](DATABASE_SETUP.md).
+> API-only tests do not require DB variables. Tests that request `db_connection` fail with an
+> actionable adapter/configuration error when DB setup is missing. See
+> [DATABASE_SETUP.md](DATABASE_SETUP.md).
 
 ### Smoke test overrides (optional)
 

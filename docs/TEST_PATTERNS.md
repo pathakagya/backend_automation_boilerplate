@@ -10,31 +10,34 @@ Every test in this project belongs to exactly one tier. The tier determines the 
 
 | Tier | Folder | Marker | Purpose | Uses factories? | Uses `state`? |
 |------|--------|--------|---------|-----------------|---------------|
-| Smoke | `tests/smoke/` | `@pytest.mark.smoke` | Health & connectivity only | No | No |
-| Integration | `tests/integration/` | `@pytest.mark.integration` | API list count vs DB count | No | No |
-| E2E | `tests/e2e/<feature>/` | `@pytest.mark.e2e` | Full CRUD workflows | Yes | Yes |
+| Smoke | `tests/smoke/` | `@pytest.mark.smoke` | Health, contracts, and optional connectivity | No | No |
+| Integration | `tests/integration/` | `@pytest.mark.integration` + optional `db_required` | API list count vs DB count | No | No |
+| E2E | `tests/e2e/<feature>/` | `@pytest.mark.e2e` + optional `db_required` | Full CRUD/workflows | Yes | Yes |
 
 Run order: **smoke first** — if smoke fails, there is no point running integration or e2e.
 
 ```bash
-make smoke          # fast, no DB required
-make integration    # requires DB
-make e2e            # requires DB
-make verify         # all three in order
+pytest tests/smoke -m "smoke and not db_required" -ra # fast API-only smoke
+pytest tests/integration -m integration -ra        # requires DB
+pytest tests/e2e -m e2e -ra                        # requires DB
+
+# All three in order
+pytest tests/smoke -m smoke -ra && pytest tests/integration -m integration -ra && pytest tests/e2e -m e2e -ra
 ```
 
 ---
 
 ## Pattern 1 — Smoke test
 
-**Purpose:** Verify that the API is reachable and responds within acceptable time. No CRUD, no DB.
+**Purpose:** Verify that the API is reachable and responds within acceptable time. No CRUD.
+DB connectivity is a separate `db_required` smoke check.
 
 **Folder:** `tests/smoke/`
 
 **What to test:**
 - Health endpoints (`/health`, `/status`)
 - Required env vars are present
-- DB is reachable (connectivity only, no data assertions)
+- DB is reachable (connectivity only, no data assertions) when the DB preset is selected
 - OpenAPI spec is accessible
 
 **Template:**
@@ -44,7 +47,7 @@ make verify         # all three in order
 import pytest
 import allure
 from core.constants import SmokeModule
-from helpers.assertions import assert_response_status, assert_response_time
+from tests.commons.assertions import assert_response_status, assert_response_time
 
 @pytest.mark.smoke
 class TestAPIHealth:
@@ -91,11 +94,12 @@ Thresholds and expected statuses are defined in `src/core/constants.py` — upda
 # tests/integration/test_users_count.py
 import pytest
 import allure
-from helpers.assertions import assert_row_count, assert_list_not_empty
+from tests.commons.assertions import assert_row_count, assert_list_not_empty
 from helpers.api_helper import paginate_all
 from helpers.db_helper import fetch_row
 
 @pytest.mark.integration
+@pytest.mark.db_required
 class TestUsersCount:
 
     @allure.title("API user count matches DB count")
@@ -110,8 +114,8 @@ class TestUsersCount:
             )
 
         with allure.step("Count rows in DB"):
-            rows = db_connection.query("SELECT COUNT(*) AS total FROM users")
-            db_count = rows[0]["total"]
+            row = db_connection.fetch_one("SELECT COUNT(*) AS total FROM users")
+            db_count = row["total"]
 
         with allure.step("Compare counts"):
             assert len(api_items) == db_count, (
@@ -129,14 +133,14 @@ def test_user_count_parity_via_total(self, api_session, db_connection):
 
     api_total = response.json()["total"]
 
-    rows = db_connection.query("SELECT COUNT(*) AS cnt FROM users")
-    db_total = rows[0]["cnt"]
+    row = db_connection.fetch_one("SELECT COUNT(*) AS cnt FROM users")
+    db_total = row["cnt"]
 
     assert api_total == db_total, f"API total={api_total}, DB total={db_total}"
 ```
 
 **Rules for integration tests:**
-- No `BaseFactory`, no `.build()` calls
+- No `BaseFactory`, no factory `.create_payload()` calls
 - No `state` fixture
 - No CRUD (POST/PUT/DELETE)
 - Use `assert_list_not_empty` to confirm the endpoint returns data at all
@@ -152,81 +156,87 @@ def test_user_count_parity_via_total(self, api_session, db_connection):
 ### Step A — Create the factory
 
 ```python
-# tests/e2e/data_builders/user_factory.py
-from helpers.data_builders import BaseFactory, random_email, random_name
+# tests/commons/data_builder/accounts.py
+from helpers.common import random_email, random_string
+from tests.commons.data_builder.shared import ProjectBaseFactory
 
-class UserFactory(BaseFactory):
+class AccountFactory(ProjectBaseFactory):
     @classmethod
-    def build(cls, **overrides):
-        defaults = {
-            "name": random_name(),
+    def create_payload(cls, **overrides):
+        payload = {
+            "name": f"account_{random_string(6)}",
             "email": random_email(),
             "role": "viewer",
         }
-        return {**defaults, **overrides}
+        payload.update(overrides)
+        return payload
 
-class AdminUserFactory(UserFactory):
+class AdminAccountFactory(AccountFactory):
     @classmethod
-    def build(cls, **overrides):
-        return super().build(role="admin", **overrides)
+    def create_payload(cls, **overrides):
+        return super().create_payload(role="admin", **overrides)
 ```
+
+Register both in `tests/commons/data_builder/__init__.py`'s re-exports. (This example uses
+`AccountFactory` rather than `UserFactory` to avoid colliding with the real, kept
+`UserFactory` in `tests/commons/data_builder/user_factory.py` — see `tests/e2e/users/`.)
 
 ### Step B — Write the test
 
 ```python
-# tests/e2e/users/test_user_crud.py
+# tests/e2e/accounts/test_account_crud.py
 import pytest
 import allure
-from helpers.assertions import assert_status, assert_field, assert_row_exists, assert_row_field
+from tests.commons.assertions import assert_status, assert_field, assert_row_exists, assert_row_field
 from helpers.db_helper import fetch_row
-from tests.e2e.data_builders.user_factory import UserFactory
+from tests.commons.data_builder import AccountFactory
 
 @pytest.mark.e2e
-class TestUserCRUD:
+class TestAccountCRUD:
 
-    @allure.title("User lifecycle: create → read → update → delete")
-    def test_user_crud(self, api_session, db_connection, state, run_prefix):
-        payload = UserFactory.build(name=f"{run_prefix}_alice")
+    @allure.title("Account lifecycle: create → read → update → delete")
+    def test_account_crud(self, api_session, db_connection, state, run_prefix):
+        payload = AccountFactory.create_payload(name=f"{run_prefix}_alice")
 
         # --- CREATE ---
-        with allure.step("POST /users — create user"):
-            response = api_session.post("/users", json=payload)
+        with allure.step("POST /accounts — create account"):
+            response = api_session.post("/accounts", json=payload)
             assert_status(response, 201)
-            user_id = assert_field(response, "id")
-            state.set("user_id", user_id)       # persist for downstream steps
+            account_id = assert_field(response, "id")
+            state.set("account_id", account_id)       # persist for downstream steps
 
         # --- DB CHECK after create ---
-        with allure.step("Assert user exists in DB"):
-            row = fetch_row(db_connection, "users", {"id": user_id}, schema="app_schema")
-            assert_row_exists(row, label="user after create")
+        with allure.step("Assert account exists in DB"):
+            row = fetch_row(db_connection, "accounts", {"id": account_id}, schema="app_schema")
+            assert_row_exists(row, label="account after create")
             assert_row_field(row, "email", payload["email"])
 
         # --- READ ---
-        with allure.step("GET /users/{id} — read back"):
-            response = api_session.get(f"/users/{user_id}")
+        with allure.step("GET /accounts/{id} — read back"):
+            response = api_session.get(f"/accounts/{account_id}")
             assert_status(response, 200)
             assert_field(response, "name", payload["name"])
 
         # --- UPDATE ---
-        with allure.step("PUT /users/{id} — update name"):
+        with allure.step("PUT /accounts/{id} — update name"):
             update_payload = {"name": f"{run_prefix}_alice_updated"}
-            response = api_session.put(f"/users/{user_id}", json=update_payload)
+            response = api_session.put(f"/accounts/{account_id}", json=update_payload)
             assert_status(response, 200)
 
         # --- DB CHECK after update ---
         with allure.step("Assert updated name in DB"):
-            row = fetch_row(db_connection, "users", {"id": user_id}, schema="app_schema")
+            row = fetch_row(db_connection, "accounts", {"id": account_id}, schema="app_schema")
             assert_row_field(row, "name", update_payload["name"])
 
         # --- DELETE ---
-        with allure.step("DELETE /users/{id}"):
-            response = api_session.delete(f"/users/{user_id}")
+        with allure.step("DELETE /accounts/{id}"):
+            response = api_session.delete(f"/accounts/{account_id}")
             assert_status(response, 204)
 
         # --- DB CHECK after delete ---
-        with allure.step("Assert user removed from DB"):
-            row = fetch_row(db_connection, "users", {"id": user_id}, schema="app_schema")
-            assert row is None, f"Expected user {user_id} to be deleted, but found row: {row}"
+        with allure.step("Assert account removed from DB"):
+            row = fetch_row(db_connection, "accounts", {"id": account_id}, schema="app_schema")
+            assert row is None, f"Expected account {account_id} to be deleted, but found row: {row}"
 ```
 
 ---
@@ -256,7 +266,7 @@ state.snapshot()   # call at the end of the test or in a step
 `run_prefix` is a session-scoped unique string (e.g. `run_gw0_a3f7c2b1`). Use it to namespace test data so parallel runs don't collide:
 
 ```python
-payload = UserFactory.build(name=f"{run_prefix}_alice")
+payload = AccountFactory.create_payload(name=f"{run_prefix}_alice")
 ```
 
 This ensures that even if two test sessions run simultaneously against the same DB, their data is distinguishable.
@@ -267,8 +277,9 @@ This ensures that even if two test sessions run simultaneously against the same 
 
 | Rule | Why |
 |------|-----|
-| Factories live in `tests/e2e/data_builders/<feature>_factory.py` | Keeps test data separate from helpers |
-| Factories extend `BaseFactory` | Gives you `build()` override pattern |
+| Factories live in `tests/commons/data_builder/<feature>.py` | One shared location for every factory, regardless of which tier uses it |
+| Factories extend `ProjectBaseFactory` (not `BaseFactory` directly) | `ProjectBaseFactory` is the project-wide extension point; `BaseFactory` (`helpers/data_builders.py`) ships generic with the boilerplate |
+| Factories implement `create_payload(cls, **overrides)` | The override pattern — build defaults, then `payload.update(overrides)` |
 | Factories produce plain dicts only | No ORM, no DB writes in factories |
 | Never use factories in smoke or integration tests | Those tiers are read-only |
 

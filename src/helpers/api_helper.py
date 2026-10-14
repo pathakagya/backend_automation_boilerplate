@@ -3,7 +3,7 @@ API test helpers — common patterns for making requests and asserting responses
 """
 from __future__ import annotations
 
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 
 from requests import Response
 
@@ -14,32 +14,6 @@ from helpers.response_parser import (
     extract_list,
     extract_field,
 )
-
-
-def request_and_assert(
-    session: APISession,
-    method: str,
-    path: str,
-    expected_status: int = 200,
-    **kwargs: Any,
-) -> Response:
-    """
-    Make an HTTP request and assert the status code in one call.
-
-    Args:
-        session:         Configured APISession.
-        method:          "GET", "POST", "PUT", "PATCH", "DELETE".
-        path:            URL path relative to base_url.
-        expected_status: Expected HTTP status code.
-        **kwargs:        Passed directly to the underlying requests method.
-
-    Returns:
-        The requests.Response on success.
-    """
-    method_fn: Callable = getattr(session, method.lower())
-    response: Response = method_fn(path, **kwargs)
-    assert_status(response, expected_status)
-    return response
 
 
 # Backward-compatible aliases to response_parser functions
@@ -68,7 +42,8 @@ def authenticate_and_set_token(
 
     Returns the token string.
     """
-    response = request_and_assert(session, "POST", login_path, expected_status=200, json=credentials)
+    response = session.post(login_path, json=credentials)
+    assert_status(response, 200)
     token = _extract_token(response)
     if not token:
         raise ValueError(
@@ -106,7 +81,8 @@ def paginate_all(
     pages_fetched = 0
 
     while current_path and pages_fetched < max_pages:
-        response = request_and_assert(session, "GET", current_path, params=current_params)
+        response = session.get(current_path, params=current_params)
+        assert_status(response, 200)
         items = _extract_list(response, items_key)
         all_items.extend(items)
         pages_fetched += 1

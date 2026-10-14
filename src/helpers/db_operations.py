@@ -9,18 +9,22 @@ from contextlib import contextmanager
 from typing import Any, Generator, Optional
 
 from core.db_connection_manager import DatabaseConnection
-from helpers.common import qualify_table, get_field
+from helpers.common import placeholder, qualify_table, get_field
 from helpers.db_helper import fetch_row, insert_row, temp_row
 
 
-def bulk_insert(
+def sequential_insert(
     conn: DatabaseConnection,
     table: str,
     rows: list[dict[str, Any]],
     schema: str = "",
 ) -> int:
     """
-    Insert multiple rows and commit in bulk.
+    Insert multiple rows one at a time, committing once at the end.
+
+    Each row is sent as a separate INSERT statement (not a single multi-row
+    statement). The single commit at the end makes this atomic — all rows land
+    or none do if an error occurs mid-loop.
 
     Args:
         conn: Active DatabaseConnection.
@@ -31,30 +35,41 @@ def bulk_insert(
     Returns:
         Number of rows inserted.
     """
-    count = 0
     for row_data in rows:
-        insert_row(conn, table, row_data, schema)
-        count += 1
-    return count
+        insert_row(conn, table, row_data, schema, autocommit=False)
+    conn.commit()
+    return len(rows)
 
 
+# ponytail: kept for backward compatibility — new code should use sequential_insert
+bulk_insert = sequential_insert
+
+
+@contextmanager
 def bulk_temp_rows(
     conn: DatabaseConnection,
     table: str,
     rows: list[dict[str, Any]],
     schema: str = "",
+    pk_column: str = "id",
 ) -> Generator[list[dict[str, Any]], None, None]:
     """
     Context manager that inserts multiple rows and auto-deletes them after use.
+
+    Deletes each row by `pk_column` using its inserted auto-generated id, not by matching the
+    original column values — matching on values would also delete any other row that happens
+    to share them (see helpers.db_helper.temp_row).
 
     Args:
         conn: Active DatabaseConnection.
         table: Table name.
         rows: List of row dicts to insert.
         schema: Optional schema prefix.
+        pk_column: Primary key column name (default: "id").
 
     Yields:
-        The list of rows that were inserted.
+        The list of inserted rows, each with `pk_column` set to its generated id (when the
+        driver/table exposes one).
 
     Example:
         with bulk_temp_rows(db, "orders", [row1, row2, row3]) as inserted_rows:
@@ -62,24 +77,43 @@ def bulk_temp_rows(
             pass
         # rows are automatically deleted
     """
+    qualified = qualify_table(table, schema)
     inserted = []
     try:
         for row_data in rows:
-            insert_row(conn, table, row_data, schema)
-            inserted.append(row_data)
+            inserted_id = insert_row(conn, table, row_data, schema)
+            pk_value = row_data.get(pk_column, inserted_id)  # explicit pk in row_data wins
+            inserted.append(
+                {**row_data, pk_column: pk_value} if pk_value is not None else dict(row_data)
+            )
         yield inserted
     finally:
         for row_data in inserted:
-            qualified = qualify_table(table, schema)
-            where = " AND ".join([f"{col}=:{i+1}" for i, col in enumerate(row_data)])
             try:
-                conn.execute(
-                    f"DELETE FROM {qualified} WHERE {where}",
-                    list(row_data.values())
-                )
+                inserted_id = row_data.get(pk_column)
+                if inserted_id is not None:
+                    pk_placeholder = placeholder(conn.paramstyle, 1)
+                    conn.execute(
+                        f"DELETE FROM {qualified} WHERE {pk_column}={pk_placeholder}",
+                        [inserted_id],
+                    )
+                else:
+                    where = " AND ".join(
+                        f"{col}={placeholder(conn.paramstyle, i + 1)}"
+                        for i, col in enumerate(row_data)
+                    )
+                    conn.execute(
+                        f"DELETE FROM {qualified} WHERE {where}",
+                        list(row_data.values())
+                    )
                 conn.commit()
-            except Exception:
-                pass
+            except Exception as exc:
+                import warnings
+                warnings.warn(
+                    f"bulk_temp_rows teardown: failed to delete row {pk_column}={inserted_id!r} "
+                    f"from {qualified}: {exc}. Stale row may persist.",
+                    stacklevel=2,
+                )
 
 
 def fetch_rows_by_field(
@@ -88,6 +122,7 @@ def fetch_rows_by_field(
     field: str,
     value: Any,
     schema: str = "",
+    order_by: str = "",
 ) -> list[Any]:
     """
     Fetch all rows where a specific field matches a value.
@@ -98,12 +133,15 @@ def fetch_rows_by_field(
         field: Field name to filter on.
         value: Value to match.
         schema: Optional schema prefix.
+        order_by: Optional column name(s) for ORDER BY clause (e.g. "transition_date" or "date DESC").
 
     Returns:
         List of matching rows.
     """
     qualified = qualify_table(table, schema)
-    query = f"SELECT * FROM {qualified} WHERE {field}=:1"
+    query = f"SELECT * FROM {qualified} WHERE {field}={placeholder(conn.paramstyle, 1)}"
+    if order_by:
+        query += f" ORDER BY {order_by}"
     return conn.fetch_all(query, [value])
 
 
@@ -112,6 +150,7 @@ def fetch_by_multiple_fields(
     table: str,
     where: dict[str, Any],
     schema: str = "",
+    order_by: str = "",
 ) -> list[Any]:
     """
     Fetch all rows matching multiple field conditions.
@@ -121,13 +160,18 @@ def fetch_by_multiple_fields(
         table: Table name.
         where: Dict of field:value pairs for WHERE clause.
         schema: Optional schema prefix.
+        order_by: Optional column name(s) for ORDER BY clause (e.g. "created_at DESC").
 
     Returns:
         List of matching rows.
     """
     qualified = qualify_table(table, schema)
-    conditions = " AND ".join([f"{col}=:{i+1}" for i, col in enumerate(where)])
+    conditions = " AND ".join(
+        f"{col}={placeholder(conn.paramstyle, i + 1)}" for i, col in enumerate(where)
+    )
     query = f"SELECT * FROM {qualified} WHERE {conditions}"
+    if order_by:
+        query += f" ORDER BY {order_by}"
     return conn.fetch_all(query, list(where.values()))
 
 
@@ -152,7 +196,9 @@ def row_count(
     qualified = qualify_table(table, schema)
 
     if where:
-        conditions = " AND ".join([f"{col}=:{i+1}" for i, col in enumerate(where)])
+        conditions = " AND ".join(
+            f"{col}={placeholder(conn.paramstyle, i + 1)}" for i, col in enumerate(where)
+        )
         query = f"SELECT COUNT(*) as cnt FROM {qualified} WHERE {conditions}"
         result = conn.fetch_one(query, list(where.values()))
     else:
@@ -183,7 +229,9 @@ def table_exists(
     """
     qualified = qualify_table(table, schema)
     try:
-        conn.fetch_one(f"SELECT 1 FROM {qualified} LIMIT 1")
+        # WHERE 1=0 returns no rows but validates the table exists on all engines
+        # (LIMIT is MySQL/PostgreSQL-only and fails on Oracle)
+        conn.fetch_one(f"SELECT 1 FROM {qualified} WHERE 1=0")
         return True
     except Exception:
         return False
@@ -208,7 +256,9 @@ def delete_where(
         Number of rows deleted (rowcount from cursor).
     """
     qualified = qualify_table(table, schema)
-    conditions = " AND ".join([f"{col}=:{i+1}" for i, col in enumerate(where)])
+    conditions = " AND ".join(
+        f"{col}={placeholder(conn.paramstyle, i + 1)}" for i, col in enumerate(where)
+    )
     query = f"DELETE FROM {qualified} WHERE {conditions}"
     cursor = conn.execute(query, list(where.values()))
     conn.commit()
@@ -238,13 +288,15 @@ def update_row(
     qualified = qualify_table(table, schema)
 
     # Build SET clause
-    set_clause = ", ".join([f"{k}=:{i+1}" for i, k in enumerate(set_values)])
+    set_clause = ", ".join(
+        f"{k}={placeholder(conn.paramstyle, i + 1)}" for i, k in enumerate(set_values)
+    )
     set_values_list = list(set_values.values())
 
     # Build WHERE clause (offset by number of SET values)
     where_offset = len(set_values)
     where_clause = " AND ".join(
-        [f"{k}=:{where_offset+i+1}" for i, k in enumerate(where)]
+        f"{k}={placeholder(conn.paramstyle, where_offset + i + 1)}" for i, k in enumerate(where)
     )
     where_values_list = list(where.values())
 

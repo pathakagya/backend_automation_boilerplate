@@ -31,6 +31,7 @@ class AuthType(str, Enum):
     BEARER = "bearer"
     BASIC = "basic"
     API_KEY = "api_key"
+    API_KEY_PARAM = "api_key_param"
     CUSTOM_HEADERS = "custom_headers"
 
 
@@ -43,18 +44,20 @@ class APISession:
     Generic requests-based HTTP session for API testing.
 
     Configuration dict keys (all optional unless noted):
-        base_url         (str, required) — base URL for all requests
-        auth_type        (str) — one of: none, bearer, basic, api_key, custom_headers
-        token            (str) — used with auth_type=bearer
-        username         (str) — used with auth_type=basic
-        password         (str) — used with auth_type=basic
-        api_key          (str) — used with auth_type=api_key
-        api_key_header   (str) — header name for api_key auth  (default: X-API-Key)
-        custom_headers   (dict) — extra headers to add to all requests
-        timeout          (int|float) — request timeout in seconds (default: 30)
-        max_retries      (int) — number of retries on 5xx / connection errors (default: 0)
-        retry_backoff    (float) — exponential backoff factor (default: 0.3)
-        attach_allure    (bool) — whether to attach request/response details to Allure reports (default: true)
+        base_url            (str, required) — base URL for all requests
+        auth_type           (str) — none, bearer, basic, api_key, api_key_param, or custom_headers
+        token               (str) — used with auth_type=bearer
+        username            (str) — used with auth_type=basic
+        password            (str) — used with auth_type=basic
+        api_key             (str) — used with auth_type=api_key / api_key_param
+        api_key_header      (str) — header name for auth_type=api_key  (default: X-API-Key)
+        api_key_param_name  (str) — query param name for auth_type=api_key_param  (default: api_key)
+        custom_headers      (dict) — extra headers to add to all requests
+        timeout             (int|float) — request timeout in seconds (default: 30)
+        max_retries         (int) — number of retries on 5xx / connection errors (default: 0)
+        retry_backoff       (float) — exponential backoff factor (default: 0.3)
+        retry_unsafe_methods (bool) — allow retries for POST/PUT/PATCH/DELETE (default: false)
+        attach_allure       (bool) — whether to attach request/response details to Allure reports (default: true)
     """
 
     DEFAULT_TIMEOUT = 30
@@ -69,10 +72,12 @@ class APISession:
         password: Optional[str] = None,
         api_key: Optional[str] = None,
         api_key_header: str = "X-API-Key",
+        api_key_param_name: str = "api_key",
         custom_headers: Optional[dict[str, str]] = None,
         timeout: float = DEFAULT_TIMEOUT,
         max_retries: int = 0,
         retry_backoff: float = 0.3,
+        retry_unsafe_methods: bool = False,
         attach_allure: bool = True,
     ) -> None:
         if not base_url:
@@ -83,6 +88,7 @@ class APISession:
         self.timeout = float(timeout)
         self._session = requests.Session()
         self.attach_allure = attach_allure
+        self._auth_query_params: dict[str, str] = {}
 
         # --- Auth configuration ---
         if self.auth_type == AuthType.BEARER:
@@ -100,6 +106,11 @@ class APISession:
                 raise APISessionError("Authentication type 'api_key' requires api_key")
             self._session.headers[api_key_header] = api_key
 
+        elif self.auth_type == AuthType.API_KEY_PARAM:
+            if not api_key:
+                raise APISessionError("Authentication type 'api_key_param' requires api_key")
+            self._auth_query_params[api_key_param_name] = api_key
+
         elif self.auth_type == AuthType.CUSTOM_HEADERS:
             if custom_headers:
                 self._session.headers.update(custom_headers)
@@ -114,7 +125,11 @@ class APISession:
                 total=max_retries,
                 backoff_factor=retry_backoff,
                 status_forcelist=[500, 502, 503, 504],
-                allowed_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+                allowed_methods=(
+                    ["GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"]
+                    if retry_unsafe_methods
+                    else ["GET", "HEAD", "OPTIONS"]
+                ),
             )
             adapter = HTTPAdapter(max_retries=retry)
             self._session.mount("http://", adapter)
@@ -125,18 +140,23 @@ class APISession:
     # ------------------------------------------------------------------ #
 
     def get(self, path: str, **kwargs: Any) -> requests.Response:
+        """Send an authenticated GET request relative to the configured base URL."""
         return self._request("GET", path, **kwargs)
 
     def post(self, path: str, **kwargs: Any) -> requests.Response:
+        """Send an authenticated POST request relative to the configured base URL."""
         return self._request("POST", path, **kwargs)
 
     def put(self, path: str, **kwargs: Any) -> requests.Response:
+        """Send an authenticated PUT request relative to the configured base URL."""
         return self._request("PUT", path, **kwargs)
 
     def patch(self, path: str, **kwargs: Any) -> requests.Response:
+        """Send an authenticated PATCH request relative to the configured base URL."""
         return self._request("PATCH", path, **kwargs)
 
     def delete(self, path: str, **kwargs: Any) -> requests.Response:
+        """Send an authenticated DELETE request relative to the configured base URL."""
         return self._request("DELETE", path, **kwargs)
 
     # ------------------------------------------------------------------ #
@@ -144,8 +164,11 @@ class APISession:
     # ------------------------------------------------------------------ #
 
     def _request(self, method: str, path: str, **kwargs: Any) -> requests.Response:
-        url = self._build_url(path)
+        """Dispatch one request, applying auth/query defaults and report attachments."""
+        url = self.build_url(path)
         kwargs.setdefault("timeout", self.timeout)
+        if self._auth_query_params:
+            kwargs["params"] = {**self._auth_query_params, **(kwargs.get("params") or {})}
 
         if self.attach_allure:
             self._attach_request(method=method, url=url, kwargs=kwargs)
@@ -155,24 +178,26 @@ class APISession:
         return response
 
     def _attach_request(self, method: str, url: str, kwargs: dict[str, Any]) -> None:
+        """Attach a sanitized outgoing request to the active Allure report."""
         payload = {
             "method": method,
             "url": url,
-            "headers": dict(self._session.headers),
-            "params": kwargs.get("params"),
-            "json": kwargs.get("json"),
-            "data": kwargs.get("data"),
+            "headers": self._sanitize(dict(self._session.headers)),
+            "params": self._sanitize(kwargs.get("params")),
+            "json": self._sanitize(kwargs.get("json")),
+            "data": self._sanitize(kwargs.get("data")),
             "timeout": kwargs.get("timeout"),
         }
         attach_json_to_allure(payload, f"HTTP Request: {method} {url}")
 
     def _attach_response(self, method: str, url: str, response: requests.Response) -> None:
+        """Attach sanitized response metadata and body to the active Allure report."""
         allure = get_allure_module()
         if allure is None:
             return
 
         try:
-            body = response.json()
+            body = self._sanitize(response.json())
             body_text = safe_json_serialize(body)
             atype = allure.attachment_type.JSON
         except Exception:
@@ -184,15 +209,33 @@ class APISession:
             "url": url,
             "status_code": response.status_code,
             "elapsed_ms": int(response.elapsed.total_seconds() * 1000),
-            "headers": dict(response.headers),
+            "headers": self._sanitize(dict(response.headers)),
         }
         attach_json_to_allure(metadata, f"HTTP Response Meta: {method} {url}")
         allure.attach(body_text, name=f"HTTP Response Body: {method} {url}", attachment_type=atype)
 
-    def _build_url(self, path: str) -> str:
+    def build_url(self, path: str) -> str:
+        """Resolve `path` to a full URL against base_url (or pass an absolute URL through)."""
         if path.startswith(("http://", "https://")):
             return path
         return f"{self.base_url}/{path.lstrip('/')}"
+
+    @staticmethod
+    def _sanitize(value: Any) -> Any:
+        """Redact credentials and tokens before values are attached to Allure."""
+        secret_names = ("authorization", "token", "password", "secret", "api-key", "apikey")
+        if isinstance(value, dict):
+            return {
+                key: (
+                    "<redacted>"
+                    if any(name in str(key).lower() for name in secret_names)
+                    else APISession._sanitize(item)
+                )
+                for key, item in value.items()
+            }
+        if isinstance(value, (list, tuple)):
+            return [APISession._sanitize(item) for item in value]
+        return value
 
     # ------------------------------------------------------------------ #
     # Token refresh helper (extend for OAuth)
@@ -242,9 +285,13 @@ class APISession:
             "password": config.get("password"),
             "api_key": config.get("api_key"),
             "api_key_header": config.get("api_key_header", "X-API-Key"),
+            "api_key_param_name": config.get("api_key_param_name", "api_key"),
             "timeout": config.get("timeout", cls.DEFAULT_TIMEOUT),
             "max_retries": int(config.get("max_retries", 0)),
             "retry_backoff": float(config.get("retry_backoff", 0.3)),
+            "retry_unsafe_methods": str(
+                config.get("retry_unsafe_methods", False)
+            ).lower() in ("true", "1", "yes"),
             "attach_allure": str(config.get("attach_allure", "true")).lower() not in ("false", "0", "no"),
         }
 

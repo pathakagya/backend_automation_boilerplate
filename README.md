@@ -21,6 +21,7 @@ Follow the docs below **in order**. Each doc ends with a link to the next one.
 
 | Step | Doc | What you'll do |
 |------|-----|----------------|
+| 0 | [ONBOARDING.md](docs/ONBOARDING.md) | Prerequisites and access checklist — read before setup |
 | 1 | [QUICK_START.md](docs/QUICK_START.md) | Set up the local environment and run your first smoke test |
 | 2 | [ENV_CONFIG.md](docs/ENV_CONFIG.md) | Understand every config variable and how the loader resolves them |
 | 3 | [API_SETUP.md](docs/API_SETUP.md) | Configure authentication and multi-service API sessions |
@@ -28,6 +29,14 @@ Follow the docs below **in order**. Each doc ends with a link to the next one.
 | 5 | [TEST_PATTERNS.md](docs/TEST_PATTERNS.md) | Learn the smoke / integration / e2e test patterns with full examples |
 | 6 | [EXTENDING.md](docs/EXTENDING.md) | Add tests for a new feature area from scratch |
 | 7 | [DEBUGGING.md](docs/DEBUGGING.md) | Diagnose failures, read logs, common fixes |
+
+Reference docs:
+[BOILERPLATE_BOUNDARIES.md](docs/BOILERPLATE_BOUNDARIES.md) ·
+[CI.md](docs/CI.md) · [RBAC_TESTING.md](docs/RBAC_TESTING.md) ·
+[TEST_DESIGN_TEMPLATE.md](docs/TEST_DESIGN_TEMPLATE.md)
+
+> **One-time GitHub Pages setup:** go to **Settings → Pages → Source** and select
+> **GitHub Actions**. The Allure HTML report is published there automatically after every CI run.
 
 ---
 
@@ -49,12 +58,6 @@ cp config/.env.example config/.env.dev
 
 # 4. Set environment variable
 export ENV=dev
-
-# 5. Run tests
-make smoke              # fast health/connectivity checks
-make integration        # API count vs DB (requires DB config)
-make e2e                # CRUD flows (requires DB config)
-make verify             # all three in order
 ```
 
 ### Windows
@@ -73,17 +76,19 @@ copy config\.env.example config\.env.dev
 
 # 4. Set environment variable
 set ENV=dev
+```
 
-# 5. Run tests (use pytest directly — Make is not available on Windows)
-pytest tests/smoke -m smoke -ra                    # fast health/connectivity checks
+### Run tests (same commands on every OS)
+
+```bash
+pytest tests/smoke -m "smoke and not db_required" -ra # API-only smoke checks
+pytest tests/smoke -m smoke -ra                    # smoke including DB checks
 pytest tests/integration -m integration -ra        # API count vs DB (requires DB config)
 pytest tests/e2e -m e2e -ra                        # CRUD flows (requires DB config)
 
 # All tests in order (smoke → integration → e2e)
 pytest tests/smoke -m smoke -ra && pytest tests/integration -m integration -ra && pytest tests/e2e -m e2e -ra
 ```
-
-> **⚠️ Note:** The `Makefile` uses Unix-style commands and does not work on Windows. Windows users must use `pytest` commands directly.
 
 ---
 
@@ -93,7 +98,7 @@ pytest tests/smoke -m smoke -ra && pytest tests/integration -m integration -ra &
 |------|--------|--------|---------|
 | Smoke | `tests/smoke/` | `@pytest.mark.smoke` | Health & connectivity — no DB required |
 | Integration | `tests/integration/` | `@pytest.mark.integration` | API list count vs DB count (read-only, no factories) |
-| E2E | `tests/e2e/<feature>/` | `@pytest.mark.e2e` | Feature CRUD; `BaseFactory` payloads; `state` fixture |
+| E2E | `tests/e2e/<feature>/` | `@pytest.mark.e2e` | Feature CRUD; `tests/commons/data_builder/` payloads; `state` fixture |
 
 ---
 
@@ -106,15 +111,16 @@ pytest-automation-boilerplate/
 ├── src/
 │   ├── core/                 ← config, API session, DB abstraction, constants
 │   ├── fixtures/             ← reusable fixture factories
-│   └── helpers/              ← assertions, API/DB helpers, data builders
+│   └── helpers/              ← generic assertions, API/DB helpers, base data builder
+├── api/                      ← typed API clients (BaseAPIClient subclasses), one per feature
 ├── tests/
 │   ├── conftest.py           ← PROJECT WIRING (API + DB sessions) — edit this
+│   ├── commons/              ← project-facing assertions, data builders, API schemas
 │   ├── smoke/                ← health & connectivity tests
 │   ├── integration/          ← API count vs DB count tests
-│   └── e2e/<feature>/        ← CRUD workflow tests + data factories
+│   └── e2e/<feature>/        ← CRUD workflow tests
 ├── docs/                     ← onboarding guides (start here)
 ├── ARCHITECTURE.md           ← system design and layer overview
-├── Makefile                  ← make smoke / integration / e2e / verify
 └── pytest.ini                ← markers, Allure output, pythonpath
 ```
 
@@ -130,7 +136,7 @@ Key variables:
 |----------|---------|
 | `ENV` | Selects env file (`dev`, `staging`) |
 | `API_BASE_URL` | Required — primary API base URL |
-| `API_AUTH_TYPE` | `none` / `bearer` / `basic` / `api_key` |
+| `API_AUTH_TYPE` | `none` / `bearer` / `basic` / `api_key` / `api_key_param` / `custom_headers` |
 | `API_TOKEN` | Bearer token |
 | `DB_ENGINE` | `mysql` / `postgresql` / `oracle` |
 | `DATABASE_HOST/PORT/NAME/USER/PASSWORD` | DB connection |
@@ -153,7 +159,7 @@ ConfigManager
 - `tests/conftest.py` is the **project customization boundary** — wire API and DB here
 - `src/conftest.py` owns session-wide boilerplate — do not modify for project logic
 - `state` fixture is function-scoped — use it only in e2e to pass IDs between steps
-- `BaseFactory` produces plain dicts — no ORM, no DB writes — e2e only
+- `BaseFactory`/`ProjectBaseFactory` (`tests/commons/data_builder/`) produce plain dicts — no ORM, no DB writes — e2e only
 
 Full architecture: [ARCHITECTURE.md](ARCHITECTURE.md)
 
@@ -167,7 +173,7 @@ Full architecture: [ARCHITECTURE.md](ARCHITECTURE.md)
 | Add API endpoints and table names | `src/core/constants.py` |
 | Implement a new DB engine | `src/project/db/<engine>_connection.py` |
 | Add a new feature test area | `tests/e2e/<feature>/` + `tests/integration/` |
-| Add a custom assertion | `src/helpers/assertions.py` |
+| Add a custom assertion | `tests/commons/assertions.py` (project-specific) or `src/helpers/assertions.py` (generic) |
 | Add an extra API service session | `tests/conftest.py` via `make_api_fixture()` |
 
 Step-by-step: [docs/EXTENDING.md](docs/EXTENDING.md)
@@ -179,13 +185,15 @@ Step-by-step: [docs/EXTENDING.md](docs/EXTENDING.md)
 | File | Purpose |
 |------|---------|
 | [CLAUDE.md](CLAUDE.md) / [AGENTS.md](AGENTS.md) | Entry point — imports all context files |
+| [.claude/persona.md](.claude/persona.md) | The role/mindset the assistant should take in this repo |
 | [.claude/context/agents.md](.claude/context/agents.md) | Agent workflows and scope rules |
 | [.claude/context/project.md](.claude/context/project.md) | Stack, layout, fork checklist |
 | [.claude/context/testing.md](.claude/context/testing.md) | Test tiers, fixtures, helpers |
 | [.claude/context/assertions.md](.claude/context/assertions.md) | Assertion helper API reference |
 | [.claude/context/gotchas.md](.claude/context/gotchas.md) | Common mistakes to avoid |
-
-Cursor rules: [.cursor/rules/project.mdc](.cursor/rules/project.mdc)
+| [.claude/rules/*.md](.claude/rules/) | Enforceable Do/Don't standards (api, db, assertions, testing, new module) |
+| [.claude/skills/*/SKILL.md](.claude/skills/) | Scaffolding automation for a new feature module |
+| [.claude/agents/*.md](.claude/agents/) | Scoped subagents (schema investigation, test authoring, review, debugging) |
 
 ---
 

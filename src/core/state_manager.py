@@ -123,6 +123,7 @@ class StateManager:
         }
 
     def keys(self) -> list[str]:
+        """Return the names of values currently stored for the test."""
         return list(self._store.keys())
 
     def __contains__(self, key: str) -> bool:

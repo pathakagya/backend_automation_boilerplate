@@ -1,11 +1,18 @@
-# Assertion helpers (`src/helpers/assertions.py`)
+# Assertion helpers (`tests/commons/assertions.py`)
 
-Use these helpers in tests instead of raw `assert` on `response.status_code` or DB rows. Every function raises **`AssertionError`** with a descriptive message (URL, body snippet, field names) so pytest and Allure show clear failures.
+Use these helpers in tests instead of raw `assert` on test cases. Every
+function raises **`AssertionError`** with a descriptive message (URL, body snippet, field names)
+so pytest and Allure show clear failures.
+
+Generic HTTP/DB primitives are defined once in `src/helpers/assertions.py` (ships with the
+boilerplate, project-agnostic) and re-exported from `tests/commons/assertions.py`, which also
+adds the project-facing composed assertions (`assert_api_db_sync`, `assert_response_schema`).
+**Always import from `tests.commons.assertions`** — see `.claude/rules/assertions.md`.
 
 ## Import
 
 ```python
-from helpers.assertions import (
+from tests.commons.assertions import (
     assert_response_status,
     assert_response_time,
     assert_field,
@@ -13,10 +20,10 @@ from helpers.assertions import (
     assert_row_exists,
     assert_row_count,
     assert_row_field,
+    assert_api_db_sync,
+    assert_response_schema,
 )
 ```
-
-`pythonpath = src` is set in `pytest.ini`, so imports use `helpers.*`, not `src.helpers.*`.
 
 ---
 
@@ -35,7 +42,7 @@ from helpers.assertions import (
 
 ```python
 from core.constants import SmokeModule
-from helpers.assertions import assert_status, assert_response_status, assert_response_time, assert_field, assert_list_not_empty
+from tests.commons.assertions import assert_status, assert_response_status, assert_response_time, assert_field, assert_list_not_empty
 
 assert_status(response, 201)
 assert_response_status(response, SmokeModule.HEALTH)
@@ -64,17 +71,45 @@ Use these with rows/lists returned from `helpers.db_helper` (`fetch_row`, querie
 > `label` customises the failure message — use a meaningful name like `"user after signup"`.
 
 ```python
-from helpers.assertions import assert_row_exists, assert_row_count, assert_row_field
+from tests.commons.assertions import assert_row_exists, assert_row_count, assert_row_field
 
-row = fetch_row(db, "SELECT * FROM users WHERE id = %s", (user_id,))
+row = fetch_row(db, "users", {"id": user_id})
 assert_row_exists(row, label="user after signup")
 
-rows = db.query("SELECT * FROM users WHERE user_id = %s", (user_id,))
+rows = db.fetch_all("SELECT * FROM users WHERE user_id = %s", (user_id,))
 assert_row_count(rows, 1, label="user logs")
 
 assert_row_field(row, "email", "user@example.com")
 assert_row_field(row, "active", True)
 ```
+
+---
+
+## Composed assertions (project-facing, `tests/commons/assertions.py` only)
+
+| Function | Parameters | Asserts | When to Use |
+|---|---|---|---|
+| `assert_api_db_sync` | `api_record`, `db_record`, `field_mapping` | Each API field matches its mapped DB column, after normalising numeric strings / `"1"`/`"0"` booleans / whitespace | A write endpoint's response should match what actually landed in the DB |
+| `assert_response_schema` | `record`, `schema`, `optional_fields=None` | Every schema field is present (unless in `optional_fields`) and `isinstance`-correct; collects all mismatches before failing | Locking down a response's shape once it's confirmed (see `tests/commons/api_schemas/`) |
+
+```python
+from tests.commons.assertions import assert_api_db_sync, assert_response_schema
+
+assert_api_db_sync(
+    api_record=response.json()["data"],
+    db_record=user_row,
+    field_mapping={"username": "username", "departmentId": "department_id"},
+)
+
+assert_response_schema(
+    record=response.json(),
+    schema={"id": int, "email": (str, type(None))},   # nullable
+    optional_fields={"co_appraiser_id"},               # may be absent entirely
+)
+```
+
+Do NOT wrap either side of an `assert_api_db_sync` comparison in `str()` — the normaliser handles
+type differences; explicit casting defeats the purpose and can mask real type bugs.
 
 ---
 
@@ -97,8 +132,8 @@ Override thresholds and expected statuses in `src/core/constants.py` (`SmokeTime
 ## Do not
 
 - Reimplement status/body/row checks with bare `assert` when these helpers apply — you lose consistent failure messages.
-- Import DB drivers into this module; it only asserts data you already fetched.
-- Use `helpers.__init__` export `assert_status` — it is not defined in `assertions.py`; use `assert_response_status` or import from `helpers.assertions` directly.
+- Import DB drivers into `helpers/assertions.py` or `tests/commons/assertions.py`; they only assert data you already fetched.
+- Import from `helpers.assertions` directly in a test — always import from `tests.commons.assertions`, which re-exports every generic primitive plus the composed assertions above.
 
 ---
 
@@ -106,7 +141,7 @@ Override thresholds and expected statuses in `src/core/constants.py` (`SmokeTime
 
 | Module | Use for |
 |--------|---------|
-| `helpers.api_helper` | `request_and_assert` — HTTP call + status check in one step |
+| `helpers.api_helper` | `authenticate_and_set_token`, `paginate_all` |
 | `helpers.db_helper` | `fetch_row`, `insert_row`, `temp_row`, `compare_dicts` |
 
 See `docs/TEST_PATTERNS.md` for stateful E2E and fixture patterns.

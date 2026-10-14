@@ -10,11 +10,10 @@ import importlib
 import os
 from typing import TYPE_CHECKING
 
-import pytest
-
 from core.api_session_manager import APISession
 from core.constants import Timeout
 from core.db_connection_manager import DatabaseConnection
+from core.db_adapter import DatabaseAdapterUnavailable
 
 if TYPE_CHECKING:
     from core.config_manager import ConfigManager
@@ -36,7 +35,8 @@ class TestResourcesManager:
         resources.cleanup()  # in fixture teardown
     """
 
-    # Supported database engines and their module/class locations
+    # The shared core only includes the reference MySQL adapter. Other
+    # projects register their own adapter with DB_ADAPTER_CLASS.
     DB_ENGINE_MAP = {
         "mysql": ("project.db.mysql_connection", "MySQLConnection"),
         "postgresql": ("project.db.postgresql_connection", "PostgreSQLConnection"),
@@ -104,7 +104,8 @@ class TestResourcesManager:
         Get or create the database connection.
 
         Cached and reused across tests within the session scope.
-        Dynamically loads the appropriate driver based on DB_ENGINE config.
+        Loads DB_ADAPTER_CLASS when supplied. DB_ENGINE remains a compatibility
+        shortcut for the reference MySQL example only.
 
         Args:
             config: ConfigManager instance.
@@ -113,40 +114,56 @@ class TestResourcesManager:
             Connected DatabaseConnection instance.
 
         Raises:
-            pytest.skip: If engine is unsupported, config is incomplete, or driver load fails.
+            DatabaseAdapterUnavailable: If the project adapter/configuration
+                cannot be resolved.
         """
         if self._db_connection is not None:
             return self._db_connection
 
         db_cfg = config.get_database_config()
-        engine = (db_cfg.get("engine") or "mysql").lower()
+        adapter_path = db_cfg.get("adapter_class") or os.getenv("DB_ADAPTER_CLASS")
+        engine = (db_cfg.get("engine") or "").lower()
 
-        # Validate engine is supported
-        if engine not in self.DB_ENGINE_MAP:
+        if not adapter_path and engine not in self.DB_ENGINE_MAP:
             supported = ", ".join(self.DB_ENGINE_MAP.keys())
-            pytest.skip(
-                f"Unsupported DB engine: {engine!r}. Supported: {supported}"
+            raise DatabaseAdapterUnavailable(
+                "No project DB adapter is configured. Set DB_ADAPTER_CLASS to "
+                "an importable adapter class. The reference engine aliases are: "
+                f"{supported}."
             )
 
         # Validate required config keys
         required = ("host", "port", "name", "user", "password")
         missing = [key for key in required if not db_cfg.get(key)]
         if missing:
-            pytest.skip(
-                f"Database config incomplete for {engine}. Missing: {', '.join(missing)}"
+            raise DatabaseAdapterUnavailable(
+                f"Database configuration is incomplete for {engine or 'configured adapter'}. "
+                f"Missing: {', '.join(missing)}."
             )
 
         # Dynamically import and instantiate the connection class
-        module_name, class_name = self.DB_ENGINE_MAP[engine]
+        if adapter_path:
+            module_name, class_name = adapter_path.rsplit(":", 1)
+        else:
+            module_name, class_name = self.DB_ENGINE_MAP[engine]
         try:
             module = importlib.import_module(module_name)
             connection_class = getattr(module, class_name)
         except (ImportError, AttributeError) as e:
-            pytest.skip(f"Cannot load {class_name} from {module_name}: {e}")
+            raise DatabaseAdapterUnavailable(
+                f"Cannot load DB adapter {adapter_path or f'{module_name}:{class_name}'}. "
+                "Install the project-owned driver and verify DB_ADAPTER_CLASS."
+            ) from e
 
         # Create and connect
-        conn = connection_class.from_config(db_cfg)
-        conn.connect()
+        try:
+            conn = connection_class.from_config(db_cfg)
+            conn.connect()
+        except Exception as exc:
+            raise DatabaseAdapterUnavailable(
+                f"DB adapter {adapter_path or f'{module_name}:{class_name}'} "
+                f"could not connect: {exc}"
+            ) from exc
         self._db_connection = conn
         return conn
 

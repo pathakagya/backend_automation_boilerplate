@@ -11,6 +11,7 @@ class MySQLConnection(DatabaseConnection):
     """MySQL implementation of the generic DatabaseConnection base class."""
 
     def _create_connection(self) -> Any:
+        """Create a non-autocommit MySQL connection using project config."""
         mysql_connector = importlib.import_module("mysql.connector")
 
         connect_kwargs = {
@@ -37,4 +38,5 @@ class MySQLConnection(DatabaseConnection):
         return mysql_connector.connect(**connect_kwargs)
 
     def _create_cursor(self) -> Any:
+        """Create dictionary-row cursors for readable DB assertions."""
         return self._conn.cursor(dictionary=True)

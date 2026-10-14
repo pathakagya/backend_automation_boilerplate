@@ -1,6 +1,7 @@
 # Quick Start
 
 > **New to this project?** Follow this doc first, then proceed in order:
+> 0. [ONBOARDING.md](ONBOARDING.md) — prerequisites and access checklist (read this first)
 > 1. **You are here** → QUICK_START.md (local setup + first run)
 > 2. [ENV_CONFIG.md](ENV_CONFIG.md) — all configuration variables explained
 > 3. [API_SETUP.md](API_SETUP.md) — wire your API connection
@@ -54,6 +55,17 @@ pip install -r requirements.txt
 
 This installs pytest, requests, Pydantic, Allure adapter, Faker, and all other required packages.
 
+> **DB driver not included.** `requirements.txt` installs no database driver — drivers are kept separate so you only install the one your project needs. If you plan to run integration or e2e tests:
+>
+> 1. Ask your team lead which engine and version the team uses (e.g. `mysql-connector-python==9.0.0`, `psycopg2-binary==2.9.9`, or `oracledb==2.0.0`).
+> 2. Open `requirements-db.txt` at the repo root, uncomment the matching line (update the version if your team uses a pinned one), and run:
+>
+> ```bash
+> pip install -r requirements-db.txt
+> ```
+>
+> Skipping this step is fine if you only plan to run smoke tests — those need no DB connection.
+
 ---
 
 ## Step 3 — Create your config file
@@ -69,6 +81,8 @@ cp config/.env.example config/.env.dev
 ```bash
 copy config\.env.example config\.env.dev
 ```
+
+> **Important:** The `.env.example` file contains placeholder values (`https://api.example.com`, `CHANGE_ME`). Tests that call the API will fail with a `ConnectionError` until you replace these with real values. If you don't have real values yet, you can still validate the framework setup by running only the env-var smoke test: `pytest tests/smoke -m smoke -k "test_required_env_vars" -ra`.
 
 Open `config/.env.dev` in your text editor (Notepad, VS Code, or your IDE) and fill in the minimum required values:
 
@@ -119,13 +133,7 @@ This tells `ConfigManager` to load `config/.env.dev`. Run this in every new shel
 
 ## Step 5 — Run smoke tests
 
-### macOS / Linux
-
-```bash
-make smoke
-```
-
-### Windows
+Same command on every OS:
 
 ```bash
 pytest tests/smoke -m smoke -ra
@@ -133,41 +141,27 @@ pytest tests/smoke -m smoke -ra
 
 **What you should see:**
 
-```
-collected 5 items
+The smoke suite collects tests from `tests/smoke/test_smoke.py` and any project-specific
+subfolders (e.g. `tests/smoke/vyaguta/`). The Vyaguta reference tests will fail on a new
+project — exclude them with `-k "not Vyaguta"` until you have your own smoke tests:
 
-tests/smoke/test_smoke.py::TestSmoke::test_health_check_endpoints PASSED
-tests/smoke/test_smoke.py::TestSmoke::test_required_env_vars PASSED
-...
-
-5 passed in 3.21s
+```bash
+pytest tests/smoke -m smoke -k "not Vyaguta" -ra
 ```
 
-If smoke tests pass, your environment is set up correctly.
+Tests that call the API require a configured `API_BASE_URL`. With placeholder values you will
+see `ConnectionError` failures — that is expected until you fill in real credentials.
 
-> **ℹ️ Note:** On macOS/Linux, you can use `make smoke`. On Windows, use the `pytest` command directly since Make is not available.
+The env-var check test (`test_required_env_vars`) should always pass and confirms the framework
+is wired up correctly regardless of API access.
+
+If all tests you expect to pass do pass, your environment is set up correctly.
 
 ---
 
 ## Step 6 — Run the full suite (optional)
 
-### macOS / Linux
-
-```bash
-make verify          # runs smoke → integration → e2e in order
-```
-
-Or run each tier individually:
-
-```bash
-make smoke           # fast health/connectivity checks
-make integration     # API count vs DB (requires DB config)
-make e2e             # CRUD flows (requires DB config)
-```
-
-### Windows
-
-Run all tests in sequence:
+Same commands on every OS. Run all tests in sequence:
 
 ```bash
 pytest tests/smoke -m smoke -ra && pytest tests/integration -m integration -ra && pytest tests/e2e -m e2e -ra
@@ -176,14 +170,12 @@ pytest tests/smoke -m smoke -ra && pytest tests/integration -m integration -ra &
 Or run each tier individually:
 
 ```bash
-pytest tests/smoke -m smoke -ra           # fast health/connectivity checks
+pytest tests/smoke -m smoke -ra                 # fast health/connectivity checks
 pytest tests/integration -m integration -ra     # API count vs DB (requires DB config)
-pytest tests/e2e -m e2e -ra               # CRUD flows (requires DB config)
+pytest tests/e2e -m e2e -ra                     # CRUD flows (requires DB config)
 ```
 
 > Integration and E2E tests will be **skipped** (not failed) if DB config is missing. This is intentional — smoke tests can still validate API connectivity alone.
-> 
-> **⚠️ Windows Note:** The `Makefile` uses Unix-style commands and does not work on Windows. Use the `pytest` commands directly instead.
 
 ---
 
@@ -218,7 +210,6 @@ pytest-automation-boilerplate/
 │   ├── integration/          ← API count vs DB count tests
 │   └── e2e/<feature>/        ← CRUD workflow tests
 ├── docs/                     ← you are here
-├── Makefile                  ← make smoke / integration / e2e / verify
 └── pytest.ini                ← markers, Allure output, pythonpath
 ```
 
@@ -226,12 +217,9 @@ pytest-automation-boilerplate/
 
 ## What to do before writing your first test
 
-1. Fill in `tests/conftest.py` with real API and DB fixture wiring → see [API_SETUP.md](API_SETUP.md) and [DATABASE_SETUP.md](DATABASE_SETUP.md)
-2. Update `src/core/constants.py` with your API paths, schema names, and table names
-3. Run smoke tests to confirm connectivity:
-   - **macOS/Linux:** `make smoke`
-   - **Windows:** `pytest tests/smoke -m smoke -ra`
-4. Read [TEST_PATTERNS.md](TEST_PATTERNS.md) to understand which folder your test belongs in
+The full checklist — fixture wiring, constants, and (if needed) a new DB driver — is in
+[ONBOARDING.md § "What minimal changes to go live actually means"](ONBOARDING.md#4-what-minimal-changes-to-go-live-actually-means).
+Once that's done, read [TEST_PATTERNS.md](TEST_PATTERNS.md) to know which folder your first test belongs in.
 
 ---
 

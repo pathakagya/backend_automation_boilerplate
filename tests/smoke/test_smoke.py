@@ -7,7 +7,7 @@ import allure
 import pytest
 
 from core.constants import APIPath, SmokeDefaults, SmokeModule
-from helpers.assertions import assert_response_status, assert_response_time
+from tests.commons.assertions import assert_response_status, assert_response_time
 
 
 def _parse_csv_env(env_key: str, default_values: tuple[str, ...] = ()) -> list[str]:
@@ -62,7 +62,7 @@ def _discover_get_endpoints(api_session) -> list[str]:
 def _default_get_endpoints() -> list[str]:
     endpoints = []
     for value in vars(APIPath).values():
-        if isinstance(value, str) and value.startswith("/"):
+        if isinstance(value, str) and value.startswith("/") and "{" not in value and "}" not in value:
             endpoints.append(value)
     return sorted(set(endpoints))
 
@@ -111,6 +111,7 @@ class TestSmoke:
                 assert_response_time(response, SmokeModule.HEALTH)
 
     @allure.title("Database connectivity check")
+    @pytest.mark.db_required
     def test_database_connectivity(self, db_connection):
         with allure.step("Run DB query"):
             row = db_connection.fetch_one("SELECT 1 AS ok")
@@ -161,6 +162,7 @@ class TestSmoke:
             assert_response_time(response, SmokeModule.GENERIC_GET)
 
     @allure.title("Database master tables are accessible")
+    @pytest.mark.db_required
     def test_database_master_tables_accessible(self, db_connection):
         master_tables = _parse_csv_env("SMOKE_DB_MASTER_TABLES", SmokeDefaults.DB_MASTER_TABLES)
         for table in master_tables:

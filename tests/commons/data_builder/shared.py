@@ -5,7 +5,7 @@ All feature factories extend this class.
 Provides _faker and _generate_random_number() shared across every factory in this project.
 
 Usage:
-    from tests.e2e.data_builders.shared import ProjectBaseFactory
+    from tests.commons.data_builder.shared import ProjectBaseFactory
 
     class ProductFactory(ProjectBaseFactory):
         @classmethod

@@ -23,10 +23,9 @@ Here is the complete set of steps for adding tests for a new feature (e.g. `orde
 ```
 tests/e2e/orders/
 ├── conftest.py               ← only if you need feature-scoped fixtures
-├── factories.py              ← OrderFactory extending BaseFactory
 └── test_order_crud.py        ← the actual test
-tests/e2e/data_builders/
-└── order_factory.py          ← same factory, importable from anywhere in e2e
+tests/commons/data_builder/
+└── orders.py                 ← OrderFactory extending ProjectBaseFactory, importable anywhere
 tests/integration/
 └── test_orders_count.py      ← API count vs DB count (read-only)
 ```
@@ -45,25 +44,29 @@ touch tests/e2e/orders/__init__.py
 ### 2. Create the data factory
 
 ```python
-# tests/e2e/data_builders/order_factory.py
-from helpers.data_builders import BaseFactory, random_string
+# tests/commons/data_builder/orders.py
+from helpers.common import random_string
+from tests.commons.data_builder.shared import ProjectBaseFactory
 
-class OrderFactory(BaseFactory):
+class OrderFactory(ProjectBaseFactory):
     @classmethod
-    def build(cls, **overrides):
-        defaults = {
+    def create_payload(cls, **overrides):
+        payload = {
             "customer_name": f"customer_{random_string(6)}",
             "product_id": 1,
             "quantity": 1,
             "status": "pending",
         }
-        return {**defaults, **overrides}
+        payload.update(overrides)
+        return payload
 
 class BulkOrderFactory(OrderFactory):
     @classmethod
-    def build(cls, **overrides):
-        return super().build(quantity=100, **overrides)
+    def create_payload(cls, **overrides):
+        return super().create_payload(quantity=100, **overrides)
 ```
+
+Add `OrderFactory`/`BulkOrderFactory` to `tests/commons/data_builder/__init__.py`'s re-exports.
 
 ### 3. Create the integration count test
 
@@ -79,8 +82,8 @@ class TestOrdersCount:
     @allure.title("API order count matches DB count")
     def test_order_count_parity(self, api_session, db_connection):
         api_orders = paginate_all(api_session, "/orders", items_key="data", next_key="next")
-        rows = db_connection.query("SELECT COUNT(*) AS total FROM orders")
-        db_count = rows[0]["total"]
+        row = db_connection.fetch_one("SELECT COUNT(*) AS total FROM orders")
+        db_count = row["total"]
         assert len(api_orders) == db_count, f"API={len(api_orders)}, DB={db_count}"
 ```
 
@@ -90,16 +93,16 @@ class TestOrdersCount:
 # tests/e2e/orders/test_order_crud.py
 import pytest
 import allure
-from helpers.assertions import assert_status, assert_field, assert_row_exists, assert_row_field
+from tests.commons.assertions import assert_status, assert_field, assert_row_exists, assert_row_field
 from helpers.db_helper import fetch_row
-from tests.e2e.data_builders.order_factory import OrderFactory
+from tests.commons.data_builder import OrderFactory
 
 @pytest.mark.e2e
 class TestOrderCRUD:
 
     @allure.title("Order lifecycle: create → read → update → delete")
     def test_order_crud(self, api_session, db_connection, state, run_prefix):
-        payload = OrderFactory.build(customer_name=f"{run_prefix}_order_test")
+        payload = OrderFactory.create_payload(customer_name=f"{run_prefix}_order_test")
 
         with allure.step("POST /orders — create order"):
             response = api_session.post("/orders", json=payload)
@@ -148,10 +151,13 @@ pytest tests/integration/test_orders_count.py -m integration -vv -s
 
 ## Adding a new assertion helper
 
-If an assertion appears more than once across your tests, extract it:
+If an assertion appears more than once across your tests, extract it — into
+**`tests/commons/assertions.py`** if it's specific to your product's domain (e.g. "order"
+status), or into **`src/helpers/assertions.py`** only if it's genuinely generic and would be
+useful in any fork of this boilerplate, independent of your business domain:
 
 ```python
-# src/helpers/assertions.py  — add at the bottom of the file
+# tests/commons/assertions.py  — add at the bottom of the file, and to __all__
 
 def assert_order_status(order_response, expected_status: str) -> None:
     """Assert that an order response body contains the expected status."""
@@ -165,7 +171,7 @@ def assert_order_status(order_response, expected_status: str) -> None:
 Then import it in your test:
 
 ```python
-from helpers.assertions import assert_order_status
+from tests.commons.assertions import assert_order_status
 
 assert_order_status(response, "confirmed")
 ```
@@ -173,34 +179,21 @@ assert_order_status(response, "confirmed")
 **Rules for assertion helpers:**
 - Raise `AssertionError` with a message that includes expected, actual, and context (URL, label)
 - Never do HTTP calls or DB queries inside an assertion helper
-- Do not import DB drivers into `helpers/assertions.py`
+- Do not import DB drivers into `helpers/assertions.py` or `tests/commons/assertions.py`
+- Tests import assertions from `tests.commons.assertions` only — see `.claude/rules/assertions.md`
 
 ---
 
 ## Adding a second API service
 
-Add a named fixture in `tests/conftest.py`:
+Set up with `make_api_fixture` — full steps (env vars, config resolution) in
+[API_SETUP.md § "Second services / multi-API setup"](API_SETUP.md#second-services--multi-api-setup).
+Once `billing_session = make_api_fixture("billing_api")` is added to `tests/conftest.py`, use it
+alongside your feature's typed client:
 
 ```python
-# tests/conftest.py
-from fixtures.api_fixtures import make_api_fixture
-
-billing_session = make_api_fixture("billing_api")
-```
-
-Add the matching vars to `.env.dev`:
-
-```ini
-BILLING_API_BASE_URL=https://billing.example.com
-BILLING_API_AUTH_TYPE=bearer
-BILLING_API_TOKEN=your-billing-token
-```
-
-Use it in your test:
-
-```python
-def test_invoice_created(api_session, billing_session):
-    response = api_session.post("/orders", json={...})
+def test_invoice_created(orders_api_client, billing_session):
+    response = orders_api_client.create_order({...})
     order_id = response.json()["id"]
 
     invoice = billing_session.get(f"/invoices?order_id={order_id}")
@@ -218,7 +211,7 @@ Summary:
 2. Add the driver to `requirements.txt`
 3. Set `DB_ENGINE=<engine>` in `.env.dev`
 
-The `engine_map` in `tests/conftest.py` already has entries for `mysql`, `postgresql`, and `oracle`.
+The `DB_ENGINE_MAP` in `src/core/test_resources.py` already has entries for `mysql`, `postgresql`, and `oracle`.
 
 ---
 

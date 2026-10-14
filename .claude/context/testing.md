@@ -9,8 +9,10 @@ Registered in `pytest.ini` and `src/conftest.py`:
 | `smoke` | Critical-path subset; run before full suite |
 | `integration` | API vs DB **count parity** on GET endpoints and master tables (read-only) |
 | `e2e` | Feature **CRUD** flows; may use data factories and `state` |
+| `db_required` | Tests that require a project-owned DB adapter to be configured; skipped gracefully when `DB_ENGINE` is not set |
+| `rbac` | Role-based access control tests; uses `make_role_fixture` and per-role credentials from env |
 
-Constants: `src/core/constants.py` → `Marker.INTEGRATION`, `Marker.E2E`, `Marker.SMOKE`
+Constants: `src/core/constants.py` → `Marker.INTEGRATION`, `Marker.E2E`, `Marker.SMOKE`, `Marker.DB_REQUIRED`, `Marker.RBAC`
 
 ## Test suite layout (by folder)
 
@@ -31,9 +33,9 @@ Each tier has a fixed responsibility. Do not mix concerns across folders.
 | **Master tables** | `SmokeDefaults.DB_MASTER_TABLES` in `core.constants` |
 | Single-resource GET | Optional: `assert_row_exists` after fetch by ID |
 
-**Must:** `@pytest.mark.integration`, live API + DB, `helpers.assertions` + `helpers.db_helper`.
+**Must:** `@pytest.mark.integration`, live API + DB, `tests.commons.assertions` + `helpers.db_helper`.
 
-**Must not:** CRUD, `BaseFactory` / `*.build()`, `state` fixture.
+**Must not:** CRUD, `BaseFactory`/factory `.create_payload()` calls, `state` fixture.
 
 ```text
 tests/integration/
@@ -46,13 +48,12 @@ tests/integration/
 
 **Purpose:** **Create → Read → Update → Delete** (or product lifecycle) via API, with DB checks where needed.
 
-**Must:** `@pytest.mark.e2e`, `tests/e2e/<feature>/`, `BaseFactory` for payloads, `state` for multi-step IDs.
+**Must:** `@pytest.mark.e2e`, `tests/e2e/<feature>/`, a `tests/commons/data_builder/<feature>.py` factory for payloads, `state` for multi-step IDs.
 
 **Must not:** Count-parity-only tests (use integration).
 
 ```text
 tests/e2e/<feature>/
-├── factories.py
 ├── conftest.py
 └── test_<feature>_crud.py
 ```
@@ -68,15 +69,22 @@ Do not add `tests/unit/` or a `unit` marker.
 
 ## Data factories (`BaseFactory`)
 
-- **Base class:** `src/helpers/data_builders.py` — `BaseFactory`, `FakerFactory`, random generators
-- **Feature factories:** `tests/e2e/data_builders/<feature>_factory.py` — one file per feature
-- **Use:** **only** in `tests/e2e/` for create/update payloads; never in smoke or integration
+- **Generic base class (ships with the boilerplate):** `src/helpers/data_builders.py` —
+  `BaseFactory` (`create_payload()`/`create_many()`) plus random generators re-exported from
+  `helpers.common` (`random_string`, `random_int`, `random_email`, `unique_id`).
+- **Project extension point:** `tests/commons/data_builder/shared.py` — `ProjectBaseFactory`
+  (extends `BaseFactory`). Extend `ProjectBaseFactory`, not `BaseFactory` directly, for feature
+  factories.
+- **Feature factories:** `tests/commons/data_builder/<feature>.py` — one file per feature, all
+  re-exported from `tests/commons/data_builder/__init__.py`.
+- **Use:** **only** in `tests/e2e/` for create/update payloads; never in smoke or integration.
 
 ```
-tests/e2e/data_builders/
-├── __init__.py
-├── user_factory.py       ← UserFactory, AdminUserFactory, FakerUserFactory
-└── <feature>_factory.py  ← add one per feature
+tests/commons/data_builder/
+├── __init__.py            ← re-exports every factory class
+├── shared.py               ← ProjectBaseFactory (extend this)
+├── user_factory.py         ← UserFactory (real, kept reference — see tests/e2e/users/)
+└── <feature>.py            ← add one per feature
 ```
 
 ## Fixtures
@@ -112,8 +120,9 @@ Override API/DB in **`tests/conftest.py`**, not `src/conftest.py`.
 
 ### Optional factories (`src/fixtures/`)
 
-- `make_api_fixture(section, scope)` — extra API sessions
+- `make_api_fixture(section, scope)` — extra API sessions (different services)
 - `make_db_fixture(ConnectionClass, section, scope)` — extra DB connections
+- `make_role_fixture(role_name, scope, login_path, token_key)` — per-role authenticated session for RBAC tests; reads `{ROLE}_API_USERNAME` / `{ROLE}_API_PASSWORD`, skips gracefully when not configured — see `docs/RBAC_TESTING.md`
 
 ### Fixtures by tier
 
@@ -125,26 +134,27 @@ Override API/DB in **`tests/conftest.py`**, not `src/conftest.py`.
 
 ## Helpers
 
-Import: `helpers.<module>` (`pythonpath = src`).
+Import boilerplate-layer helpers as `helpers.<module>` (`pythonpath = src`); import assertions
+and factories from `tests.commons.*` (see `.claude/rules/assertions.md` /
+`.claude/rules/testing.md` for why the two layers are split).
 
 | Module | Use for |
 |--------|---------|
-| `helpers.assertions` | See `assertions.md` |
-| `helpers.api_helper` | `request_and_assert`, `authenticate_and_set_token`, `paginate_all` |
+| `tests.commons.assertions` | See `assertions.md` — import ALL assertions from here, not `helpers.assertions` |
+| `helpers.api_helper` | `authenticate_and_set_token`, `paginate_all` |
 | `helpers.db_helper` | `fetch_row`, `insert_row`, `temp_row`, `compare_dicts` |
-| `helpers.data_builders` | `BaseFactory`, `FakerFactory`, random generators (base only) |
-| `tests.e2e.data_builders.<feature>_factory` | Feature-specific factories — **e2e only** |
+| `helpers.data_builders` | `BaseFactory` (generic base only) |
+| `tests.commons.data_builder` | `ProjectBaseFactory` + every feature factory (e.g. `UserFactory`) — **e2e only** |
 | `helpers.polling` | `wait_until` |
 
 | Tier | Primary helpers |
 |------|-----------------|
 | Smoke | `assert_response_status`, `assert_response_time`, `SmokeModule` |
 | Integration | `assert_row_count`, `assert_list_not_empty`, `fetch_row`, `paginate_all` |
-| E2E | `request_and_assert`, `BaseFactory`, `temp_row`, `state`, `assert_row_field` |
+| E2E | typed API client, `tests.commons.data_builder` factories, `temp_row`, `state`, `assert_row_field` |
 
 ```python
 # api_helper
-response = request_and_assert(api_session, "GET", "/users", expected_status=200)
 all_items = paginate_all(api_session, "/users", items_key="data", next_key="next")
 
 # db_helper
@@ -157,7 +167,8 @@ row = fetch_row(db_connection, "users", {"email": "x@y.com"}, schema="app_schema
 
 ## Assertions
 
-Full API: `.claude/context/assertions.md` → `src/helpers/assertions.py`.
+Full API: `.claude/context/assertions.md` → `tests/commons/assertions.py` (generic primitives
+underneath in `src/helpers/assertions.py`).
 
 ## Pytest defaults (`pytest.ini`)
 
@@ -169,9 +180,9 @@ Full API: `.claude/context/assertions.md` → `src/helpers/assertions.py`.
 
 | Tier | Command |
 |------|---------|
-| Smoke | `make smoke` |
-| Integration | `make integration` |
-| E2E | `make e2e` |
-| All | `make verify` |
+| Smoke | `pytest tests/smoke -m smoke -ra` |
+| Integration | `pytest tests/integration -m integration -ra` |
+| E2E | `pytest tests/e2e -m e2e -ra` |
+| All | `pytest tests/smoke -m smoke -ra && pytest tests/integration -m integration -ra && pytest tests/e2e -m e2e -ra` |
 
 Boilerplate today: `tests/smoke/` has tests; add `tests/integration/` and `tests/e2e/<feature>/` per project.

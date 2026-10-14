@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { font-family: Arial, sans-serif; font-size: 14px; color: #333; margin: 0; padding: 16px; background: #f9f9f9; }
+    .card { background: #fff; border-radius: 6px; padding: 20px; margin-bottom: 16px; border: 1px solid #e0e0e0; }
+    .header { background: {{ "#d4edda" if status == "PASSED" else "#f8d7da" }}; border-color: {{ "#c3e6cb" if status == "PASSED" else "#f5c6cb" }}; }
+    .status-label { font-size: 22px; font-weight: bold; color: {{ "#155724" if status == "PASSED" else "#721c24" }}; }
+    .meta { color: #555; margin-top: 6px; font-size: 13px; }
+    table { border-collapse: collapse; width: 100%; }
+    th { background: #f5f5f5; padding: 8px 12px; text-align: left; border: 1px solid #ddd; font-weight: 600; }
+    td { padding: 8px 12px; border: 1px solid #ddd; }
+    tr:nth-child(even) td { background: #fafafa; }
+    .pass { color: #28a745; font-weight: 600; }
+    .fail { color: #dc3545; font-weight: 600; }
+    .broken { color: #e67e22; font-weight: 600; }
+    .skip { color: #6c757d; }
+    .zero { color: #aaa; }
+    .error-msg { font-family: monospace; font-size: 12px; color: #721c24; background: #fff5f5; padding: 4px 8px; margin-top: 4px; border-left: 3px solid #f5c6cb; white-space: pre-wrap; word-break: break-all; }
+    .links a { display: inline-block; margin-right: 16px; color: #007bff; text-decoration: none; font-weight: 500; }
+    .links a:hover { text-decoration: underline; }
+    h3 { font-size: 15px; margin: 0 0 12px; color: #444; border-bottom: 1px solid #eee; padding-bottom: 6px; }
+    .suite-parent { color: #888; font-size: 12px; }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <div class="card header">
+    <div class="status-label">{{ "✅ PASSED" if status == "PASSED" else "❌ FAILED" }}</div>
+    <div class="meta">
+      <strong>{{ repo }}</strong> &nbsp;·&nbsp; branch: <strong>{{ branch }}</strong> &nbsp;·&nbsp; run #{{ run_number }}
+    </div>
+  </div>
+
+  <!-- Summary stats -->
+  <div class="card">
+    <h3>Summary</h3>
+    <table>
+      <tr>
+        <th>Total</th>
+        <th>Passed</th>
+        <th>Failed</th>
+        <th>Broken</th>
+        <th>Skipped</th>
+        <th>Duration</th>
+      </tr>
+      <tr>
+        <td><strong>{{ stats.tests }}</strong></td>
+        <td class="pass">{{ stats.passes }}</td>
+        <td class="{{ 'fail' if stats.failures else 'zero' }}">{{ stats.failures }}</td>
+        <td class="{{ 'broken' if stats.broken else 'zero' }}">{{ stats.broken }}</td>
+        <td class="{{ 'skip' if stats.skipped else 'zero' }}">{{ stats.skipped }}</td>
+        <td>{{ stats.duration_fmt }}</td>
+      </tr>
+    </table>
+  </div>
+
+  <!-- Suite breakdown -->
+  {% if suites %}
+  <div class="card">
+    <h3>Suite Breakdown</h3>
+    <table>
+      <tr>
+        <th>Suite</th>
+        <th>Total</th>
+        <th>Passed</th>
+        <th>Failed</th>
+        <th>Broken</th>
+        <th>Skipped</th>
+      </tr>
+      {% for suite in suites %}
+      <tr>
+        <td>
+          {% if suite.parent_suite %}<span class="suite-parent">{{ suite.parent_suite }} › </span>{% endif %}
+          {{ suite.title }}
+        </td>
+        <td>{{ suite.total }}</td>
+        <td class="pass">{{ suite.passed }}</td>
+        <td class="{{ 'fail' if suite.failed else 'zero' }}">{{ suite.failed }}</td>
+        <td class="{{ 'broken' if suite.broken else 'zero' }}">{{ suite.broken }}</td>
+        <td class="{{ 'skip' if suite.skipped else 'zero' }}">{{ suite.skipped }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+  {% endif %}
+
+  <!-- Failed tests -->
+  {% if failed_tests %}
+  <div class="card">
+    <h3>Failed Tests ({{ failed_tests | length }})</h3>
+    <table>
+      <tr>
+        <th>Test</th>
+        <th>Status</th>
+        <th>Error</th>
+      </tr>
+      {% for t in failed_tests %}
+      <tr>
+        <td>{{ t.title }}</td>
+        <td class="{{ 'fail' if t.state == 'failed' else 'broken' }}">{{ t.state }}</td>
+        <td>
+          {% if t.err and t.err.message %}
+          <div class="error-msg">{{ t.err.message }}</div>
+          {% else %}
+          <span class="zero">—</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+  {% endif %}
+
+  <!-- Links -->
+  <div class="card links">
+    <h3>Links</h3>
+    <a href="{{ allure_url }}">📊 Allure Report</a>
+    <a href="{{ run_url }}">🔗 GitHub Actions Run</a>
+  </div>
+
+</body>
+</html>
