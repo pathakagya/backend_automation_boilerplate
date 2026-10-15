@@ -80,7 +80,9 @@ Set in **Settings → Secrets and variables → Actions → Secrets**:
 The `publish-report` job deploys the Allure HTML report to GitHub Pages after every run.
 
 1. Go to **Settings → Pages → Source** and select **GitHub Actions**.
-2. The report URL will be: `https://<org>.github.io/<repo>/`
+2. The report URL will be: `https://<org>.github.io/<repo>/`. The email takes this URL from
+   the deploy step's output, so if Pages isn't enabled or the deploy fails, the email simply
+   leaves out the Allure link instead of pointing at a dead page.
 
 > **Private repos:** GitHub Pages requires GitHub Team or Enterprise for private repositories.
 > If Pages isn't available, the publish job will fail — set its `if:` condition to
@@ -125,7 +127,14 @@ your provider's values. The action speaks plain SMTP — any server works.
 ### How the email report is generated
 
 `scripts/generate_email_report.py` reads the raw `allure-results/*.json` files (no Allure CLI
-needed in this step). If Allure results are absent it falls back to parsing `junit-smoke.xml`.
+needed in this step). If Allure results are absent it falls back to parsing `junit-smoke.xml`,
+which the real smoke run writes via `--junitxml`. If neither source has any tests (for example,
+smoke was skipped because `API_BASE_URL` isn't set), the email status is `NO RESULTS`, not
+`PASSED`.
+
+> **Don't add a pytest step after the smoke run in `api-smoke`.** `pytest.ini` passes
+> `--clean-alluredir` on every invocation, so any later pytest call (even `--collect-only`)
+> empties `allure-results/` before it is uploaded.
 The HTML body is rendered from `scripts/email_template.html` (Jinja2) — edit that file freely
 to match your team's branding.
 

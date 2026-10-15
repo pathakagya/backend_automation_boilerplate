@@ -9,7 +9,7 @@ from core.db_connection_manager import DatabaseConnection
 from tests.e2e.users import db_queries
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def users_api_client(api_session: APISession) -> UsersClient:
     return UsersClient(api_session)
 

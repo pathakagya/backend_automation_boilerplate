@@ -21,18 +21,15 @@ SCRIPT_DIR = Path(__file__).parent
 GITHUB_RUN_NUMBER = os.getenv("GITHUB_RUN_NUMBER", "?")
 GITHUB_REF_NAME = os.getenv("GITHUB_REF_NAME", "unknown")
 GITHUB_REPOSITORY = os.getenv("GITHUB_REPOSITORY", "")
-GITHUB_REPOSITORY_OWNER = os.getenv("GITHUB_REPOSITORY_OWNER", "")
 GITHUB_SERVER_URL = os.getenv("GITHUB_SERVER_URL", "https://github.com")
 GITHUB_RUN_ID = os.getenv("GITHUB_RUN_ID", "")
+# Empty when GitHub Pages isn't enabled or the deploy failed; the email then omits the link.
+ALLURE_REPORT_URL = os.getenv("ALLURE_REPORT_URL", "").strip()
 
 
 def _repo_name() -> str:
     parts = GITHUB_REPOSITORY.split("/", 1)
     return parts[1] if len(parts) == 2 else GITHUB_REPOSITORY
-
-
-def _allure_url() -> str:
-    return f"https://{GITHUB_REPOSITORY_OWNER}.github.io/{_repo_name()}/"
 
 
 def _run_url() -> str:
@@ -156,7 +153,12 @@ def main() -> None:
     stats = results["stats"]
     suites = results["suites"]
 
-    overall = "PASSED" if stats["failures"] == 0 and stats["broken"] == 0 else "FAILED"
+    if stats["tests"] == 0:
+        overall = "NO RESULTS"
+    elif stats["failures"] == 0 and stats["broken"] == 0:
+        overall = "PASSED"
+    else:
+        overall = "FAILED"
     stats["duration_fmt"] = _format_duration(stats["duration"])
 
     failed_tests = [
@@ -173,7 +175,7 @@ def main() -> None:
         stats=stats,
         suites=suites,
         failed_tests=failed_tests,
-        allure_url=_allure_url(),
+        allure_url=ALLURE_REPORT_URL,
         run_url=_run_url(),
     )
 

@@ -34,6 +34,10 @@ def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line(
         "markers", "db_required: tests requiring a project-owned database adapter"
     )
+    config.addinivalue_line(
+        "markers",
+        "rbac: tests that exercise role-based access control; skipped when role credentials are not configured",
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -43,9 +43,10 @@ Prefer the scoped subagent below over doing the work inline — each owns one jo
 | Test needs pre-existing DB rows across related tables | `data-seeder` |
 | Deciding test tier, folder, or fixture placement | `test-architect` |
 | Writing or fixing a smoke/integration/e2e test | `backend-test-engineer` |
-| Reviewing test code for SOLID/DRY/duplication | `design-reviewer` |
 | Reviewing for missing edge cases/coverage gaps | `quality-advocate` |
 | A test fails and the cause isn't obvious | `debugging-specialist` |
+
+For SOLID/DRY/duplication review of finished code, use the `/simplify` skill (and `/code-review` for correctness bugs). There is deliberately no `design-reviewer` agent: it was removed because it duplicated those two skills, and having both left it unclear which one to invoke.
 
 Definitions: `.claude/agents/*.md`. No `business-analyst` agent yet — add one per fork once the project has real requirements docs (Confluence/Jira) to read.
 
