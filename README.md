@@ -92,6 +92,17 @@ pytest tests/smoke -m smoke -ra && pytest tests/integration -m integration -ra &
 
 ---
 
+> **CI — DB tests disabled:** The `db-tests` CI job (`RUN_DB_TESTS`) is currently disabled
+> because the database is only reachable over the **LF VPN**. GitHub Actions runners cannot
+> connect to it without VPN access. To run integration and e2e tiers, execute them locally with
+> the VPN active:
+> ```bash
+> pytest tests/integration -m integration -ra
+> pytest tests/e2e -m e2e -ra
+> ```
+
+---
+
 ## Test tiers
 
 | Tier | Folder | Marker | Purpose |
