@@ -14,6 +14,8 @@ from requests import Response
 from core.constants import SmokeExpectedStatus, SmokeTimeoutSeconds
 from helpers.common import get_field
 
+_UNSET: Any = object()
+
 
 # ---------------------------------------------------------------------------
 # HTTP / API assertions
@@ -53,10 +55,11 @@ def assert_response_time(response: Response, module_name: str) -> None:
         )
 
 
-def assert_field(response: Response, key: str, expected: Any = None) -> Any:
+def assert_field(response: Response, key: str, expected: Any = _UNSET) -> Any:
     """
     Assert a JSON response body contains key (and optionally matches expected value).
 
+    Pass expected=None to assert the field is present and null.
     Returns the field value for further assertions.
     """
     data = _parse_json(response)
@@ -65,7 +68,7 @@ def assert_field(response: Response, key: str, expected: Any = None) -> Any:
             f"Expected field {key!r} in response but it was missing.\nBody: {data}"
         )
     actual = data[key]
-    if expected is not None and actual != expected:
+    if expected is not _UNSET and actual != expected:
         raise AssertionError(
             f"Field {key!r}: expected {expected!r}, got {actual!r}."
         )

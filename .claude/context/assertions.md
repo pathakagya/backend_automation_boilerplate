@@ -34,7 +34,7 @@ from tests.commons.assertions import (
 | `assert_status` | `response`, `expected` | `status_code == expected` | URL + body snippet | Exact status on any endpoint (e.g. `201` on create) |
 | `assert_response_status` | `response`, `module_name` | Status matches `SmokeExpectedStatus` for module | Module name, expected vs actual, URL, body | Smoke tests where expected status varies by endpoint type |
 | `assert_response_time` | `response`, `module_name` | `elapsed` ≤ module threshold in `SmokeTimeoutSeconds` | Module name, elapsed, threshold, URL | Performance smoke checks alongside `assert_response_status` |
-| `assert_field` | `response`, `key`, `expected=None` | JSON has `key`; if `expected` set, value must match | Missing key / value mismatch / non-JSON | Single top-level JSON field presence or equality check |
+| `assert_field` | `response`, `key`, `expected` (optional) | JSON has `key`; if `expected` is passed (including `None`), value must match | Missing key / value mismatch / non-JSON | Single top-level JSON field presence or equality check |
 | `assert_list_not_empty` | `response`, `key=None` | JSON (or `json[key]`) is a non-empty list | Not a list / empty / invalid JSON | List endpoints, search results, paginated first-page sanity |
 
 > `module_name` is a `SmokeModule` constant — drives thresholds and expected statuses from `src/core/constants.py`.
@@ -89,7 +89,7 @@ assert_row_field(row, "active", True)
 
 | Function | Parameters | Asserts | When to Use |
 |---|---|---|---|
-| `assert_api_db_sync` | `api_record`, `db_record`, `field_mapping` | Each API field matches its mapped DB column, after normalising numeric strings / `"1"`/`"0"` booleans / whitespace | A write endpoint's response should match what actually landed in the DB |
+| `assert_api_db_sync` | `api_record`, `db_record`, `field_mapping` | Each API field matches its mapped DB column. Only the DB side is normalised (numeric strings / `"1"`/`"0"` booleans / whitespace), guided by the API value's type; API values are never coerced | A write endpoint's response should match what actually landed in the DB |
 | `assert_response_schema` | `record`, `schema`, `optional_fields=None` | Every schema field is present (unless in `optional_fields`) and `isinstance`-correct; collects all mismatches before failing | Locking down a response's shape once it's confirmed (see `tests/commons/api_schemas/`) |
 
 ```python

@@ -20,11 +20,11 @@ def sequential_insert(
     schema: str = "",
 ) -> int:
     """
-    Insert multiple rows one at a time, committing once at the end.
+    Insert multiple rows one at a time in a single transaction.
 
     Each row is sent as a separate INSERT statement (not a single multi-row
-    statement). The single commit at the end makes this atomic — all rows land
-    or none do if an error occurs mid-loop.
+    statement). All rows land or none do: any exception mid-loop rolls back
+    the rows already inserted, then re-raises.
 
     Args:
         conn: Active DatabaseConnection.
@@ -35,9 +35,9 @@ def sequential_insert(
     Returns:
         Number of rows inserted.
     """
-    for row_data in rows:
-        insert_row(conn, table, row_data, schema, autocommit=False)
-    conn.commit()
+    with conn.transaction():
+        for row_data in rows:
+            insert_row(conn, table, row_data, schema, autocommit=False)
     return len(rows)
 
 

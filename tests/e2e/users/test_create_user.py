@@ -246,12 +246,8 @@ class TestCreateUserPositive:
 
         user_row = db_queries.fetch_user(db_connection, user_id)
         assert_row_exists(user_row)
-        assert user_row is not None
         for nullable_column in ("middle_name", "cv_url", "home_phone", "github_id", "blood_group"):
-            assert user_row[nullable_column] is None, (
-                f"{nullable_column} should be NULL when the field is omitted from the request, "
-                f"got {user_row[nullable_column]!r}"
-            )
+            assert_row_field(user_row, nullable_column, None)
 
     def test_role_assignment_creates_roles_users_row(
         self, users_api_client, db_connection, lookup_data,

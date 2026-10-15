@@ -41,31 +41,27 @@ __all__ = [
 # API / DB sync
 # ---------------------------------------------------------------------------
 
-def _normalize_for_comparison(value: Any) -> Any:
+def _normalize_db_value(db_value: Any, api_value: Any) -> Any:
     """
-    Normalise a value from either an API response or a DB row before comparing them.
+    Undo DB-driver quirks on the DB side only, guided by the API value's type.
 
-    Handles the common cross-source mismatches: DB drivers that return numeric columns as
-    strings, boolean columns as "1"/"0" or 0/1, and trailing whitespace on text columns.
-    Do NOT cast either side to str() before calling assert_api_db_sync — that masks real
-    type bugs; this normaliser does the real work so callers don't have to.
+    Handles: trailing whitespace on CHAR-padded text columns, boolean columns returned as
+    "1"/"0", and numeric columns returned as strings. The API value is never coerced, so an
+    API that sends "12345" where the DB holds 12345 still fails — that is a real contract bug.
+    Do NOT cast either side to str() before calling assert_api_db_sync.
     """
-    if value is None or isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        stripped = value.strip()
-        if stripped in ("1", "0"):
-            return stripped == "1"
-        try:
-            return int(stripped)
-        except ValueError:
-            pass
-        try:
-            return float(stripped)
-        except ValueError:
-            pass
-        return stripped
-    return value
+    if not isinstance(db_value, str):
+        return db_value
+    stripped = db_value.strip()
+    if isinstance(api_value, bool):
+        return stripped == "1" if stripped in ("1", "0") else stripped
+    if isinstance(api_value, (int, float)):
+        for cast in (int, float):
+            try:
+                return cast(stripped)
+            except ValueError:
+                pass
+    return stripped
 
 
 def assert_api_db_sync(
@@ -85,13 +81,13 @@ def assert_api_db_sync(
             field_mapping={"username": "username", "departmentId": "department_id"},
         )
 
-    Values are normalised before comparison (see _normalize_for_comparison) — never str() either
+    DB values are normalised before comparison (see _normalize_db_value) — never str() either
     side yourself first.
     """
     mismatches: dict[str, dict[str, Any]] = {}
     for api_field, db_column in field_mapping.items():
-        api_value = _normalize_for_comparison(get_field(api_record, api_field))
-        db_value = _normalize_for_comparison(get_field(db_record, db_column))
+        api_value = get_field(api_record, api_field)
+        db_value = _normalize_db_value(get_field(db_record, db_column), api_value)
         if api_value != db_value:
             mismatches[api_field] = {
                 "api_value": api_value,
